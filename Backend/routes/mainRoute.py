@@ -205,8 +205,6 @@ async def send_only(socket: WebSocket, id: int = Query(...)):
         # --- Register connection ---
         conn = {"socket": socket, "type": conn_type}
         wsc[id].append(conn)
- 
-
         # --- Helper for safe sending ---
         async def safe_send(target_conn, message):
             try:
@@ -223,15 +221,22 @@ async def send_only(socket: WebSocket, id: int = Query(...)):
             except WebSocketDisconnect:
                 break
 
-            payload = data.get("payload")
+            raw_payload = data.get("payload")
             action = data.get("action")
-            if not action or payload is None:
+            if not action or raw_payload is None:
                 await socket.send_json({"error": "action and payload are required"})
                 continue
 
+            # --- Pydantic validation ---
+            try:
+                dta = Update_RTC(**raw_payload)
+                payload=dta.model_dump(exclude_unset=True)
+            except ValidationError as ve:
+                await socket.send_json({"error": "Invalid payload", "details": ve.errors()})
+                continue
+            # --- Action handling ---
             match action:
                 case "send_data":
-                    # Forward to opposite type (master -> slave, slave -> master)
                     target_type = "slave" if conn_type == "master" else "master"
                     for target_conn in wsc.get(id, []):
                         if target_conn["type"] == target_type:
@@ -242,7 +247,6 @@ async def send_only(socket: WebSocket, id: int = Query(...)):
                             })
 
                 case "rec_data":
-                    # Only slave can send rec_data to master
                     if conn_type != "slave":
                         await socket.send_json({"error": "Only slave can send rec_data"})
                         continue
@@ -251,7 +255,7 @@ async def send_only(socket: WebSocket, id: int = Query(...)):
                         await safe_send(master_conn, {
                             "from": id,
                             "type": "slave",
-                            "payload": payload
+                            "payload": payload.dict()
                         })
                     else:
                         await socket.send_json({"error": "No master connected"})

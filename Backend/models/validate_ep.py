@@ -11,7 +11,6 @@ class Registry(BaseModel):
     
 class Update_RTC(BaseModel):
     action:str
-    sender_id:int
     sdp: Optional[str] = None
     ice: Optional[List[str]] = None
     answer_sdp: Optional[str] = None
