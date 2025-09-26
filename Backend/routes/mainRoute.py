@@ -172,82 +172,87 @@ wsc = {}
  
 
 @route.websocket("/signaling")
-async def send_only(socket: WebSocket, id: int = Query(...)):
+async def signaling(socket: WebSocket, id: int = Query(...), role: str = Query(...)):
     db: Session = SessionLocal()
     conn = None
     try:
         await socket.accept()
 
-        # --- Check user ---
+        # --- Check user exists ---
         user = db.query(User).filter(User.id == id).one_or_none()
         if not user:
             await socket.send_json({"error": "User not found"})
             await socket.close()
             return
 
-        # --- Initialize user entry ---
-        if id not in wsc:
-            wsc[id] = []
-
-        # --- Determine connection type ---
-        has_master = any(c["type"] == "master" for c in wsc[id])
-        has_slave = any(c["type"] == "slave" for c in wsc[id])
-
-        if not has_master:
-            conn_type = "master"
-        elif not has_slave:
-            conn_type = "slave"
-        else:
-            await socket.send_json({"error": "Max 1 master and 1 slave allowed per user"})
+        if role not in ["master", "slave"]:
+            await socket.send_json({"error": "Role must be 'master' or 'slave'"})
             await socket.close()
             return
 
-        # --- Register connection ---
-        conn = {"socket": socket, "type": conn_type}
+        # --- Initialize list ---
+        if id not in wsc:
+            wsc[id] = []
+
+        # --- Enforce only one master + one slave per id ---
+        if any(c["type"] == role for c in wsc[id]):
+            await socket.send_json({"error": f"{role} already exists for user {id}"})
+            await socket.close()
+            return
+
+        # --- Register ---
+        conn = {"socket": socket, "type": role}
         wsc[id].append(conn)
-        # --- Helper for safe sending ---
         async def safe_send(target_conn, message):
             try:
                 await target_conn["socket"].send_json(message)
             except WebSocketDisconnect:
-                # Remove disconnected socket
                 if id in wsc and target_conn in wsc[id]:
                     wsc[id].remove(target_conn)
 
-        # --- Main receive loop ---
+        # --- Loop ---
         while True:
             try:
                 data = await socket.receive_json()
             except WebSocketDisconnect:
                 break
 
-            raw_payload = data.get("payload")
             action = data.get("action")
+            raw_payload = data.get("payload")
+
             if not action or raw_payload is None:
                 await socket.send_json({"error": "action and payload are required"})
                 continue
 
-            # --- Pydantic validation ---
+            # Validate with Pydantic
             try:
                 dta = Update_RTC(**raw_payload)
-                payload=dta.model_dump(exclude_unset=True)
+                payload = dta.model_dump(exclude_unset=True)
             except ValidationError as ve:
                 await socket.send_json({"error": "Invalid payload", "details": ve.errors()})
                 continue
-            # --- Action handling ---
             match action:
                 case "send_data":
-                    target_type = "slave" if conn_type == "master" else "master"
+                    target_type = "slave" if role == "master" else "master"
                     for target_conn in wsc.get(id, []):
                         if target_conn["type"] == target_type:
                             await safe_send(target_conn, {
                                 "from": id,
-                                "type": conn_type,
+                                "type": role,
                                 "payload": payload
+                            })
+                case "send_data_raw":
+                    target_type = "slave" if role == "master" else "master"
+                    for target_conn in wsc.get(id, []):
+                        if target_conn["type"] == target_type:
+                            await safe_send(target_conn, {
+                                "from": id,
+                                "type": role,
+                                "payload": raw_payload  # send exactly what was received
                             })
 
                 case "rec_data":
-                    if conn_type != "slave":
+                    if role != "slave":
                         await socket.send_json({"error": "Only slave can send rec_data"})
                         continue
                     master_conn = next((c for c in wsc.get(id, []) if c["type"] == "master"), None)
@@ -255,7 +260,7 @@ async def send_only(socket: WebSocket, id: int = Query(...)):
                         await safe_send(master_conn, {
                             "from": id,
                             "type": "slave",
-                            "payload": payload.dict()
+                            "payload": payload
                         })
                     else:
                         await socket.send_json({"error": "No master connected"})
@@ -272,11 +277,9 @@ async def send_only(socket: WebSocket, id: int = Query(...)):
                     await socket.send_json({"error": "Invalid action"})
 
     finally:
-        # --- Cleanup on disconnect ---
         db.close()
         if conn and id in wsc:
             if conn in wsc[id]:
                 wsc[id].remove(conn)
             if not wsc[id]:
                 del wsc[id]
- 

@@ -10,7 +10,7 @@ class Registry(BaseModel):
     username:str
     
 class Update_RTC(BaseModel):
-    action:str
+
     sdp: Optional[str] = None
     ice: Optional[List[str]] = None
     answer_sdp: Optional[str] = None
