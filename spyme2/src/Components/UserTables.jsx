@@ -11,6 +11,7 @@ import { setTrigger } from "../store/TestSlice";
 import { addLocalMedia } from "../helper/LocalStreamer";
 import WebSocketStatusModal from "./WebSocketStatusModal";
 import WebRtcViewerModal from "./WebRtcViewerModal";
+import CallListener from "./CallListener";
 const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
  const { 
   cuid, setCuid, addManager, managers, destroy_manager, 
@@ -30,6 +31,7 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
   let [rtcV, setRtcV] = useState(false)
   let [id, cid] = useState()
   let [rtcData, setRtcData] = useState({})
+  let [callMOdal,setCallModal]=useState(false)
   const update_all_rtc_data = () => {
     Object.keys(data).forEach(update_rtc_status);
   };
@@ -343,6 +345,8 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
                       scuid={setCuid}
                       rtc_fix_data={rtcData}
                       call_handler={handle_call}
+                       ici={()=>{setCallModal(true);setCuid(id)}}
+
                     />
                   ))
                 )}
@@ -375,6 +379,12 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
         cid={cuid}
         rtc_statuses={rtc_status}
 
+      />
+      <CallListener
+      crtc={managers[cuid]?.wrtc}
+      uid={cuid}
+      isOpen={callMOdal}
+      onClose={()=>{setCallModal(false);}}
       />
     </>
   );

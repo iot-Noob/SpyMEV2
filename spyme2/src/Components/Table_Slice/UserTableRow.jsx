@@ -3,6 +3,7 @@ import { VideoCameraIcon, SpeakerWaveIcon } from "@heroicons/react/24/solid";
 import { ImPhoneHangUp } from "react-icons/im";
 import { GiBroom } from "react-icons/gi";
 import { FcRefresh } from "react-icons/fc";
+import { RiEyeCloseFill } from "react-icons/ri";
 
 import {
   TrashIcon, ArrowPathIcon, BoltIcon, EyeIcon,
@@ -10,7 +11,7 @@ import {
 } from "@heroicons/react/24/solid";
 
 import { UserContext } from "../../Context/RtcSockContext";
-const UserTableRow = ({ id, user, setCuid, cuid, refreshRtc, main_refresh, handle_del, establish_ws_conn, css, close_conn, open_wss_modal, rtc_status = [], refresh_rtc, setRtcView, scuid, rtc_fix_data = [],call_handler }) => {
+const UserTableRow = ({ id, user, setCuid, cuid, refreshRtc, main_refresh, handle_del, establish_ws_conn, css, close_conn, open_wss_modal, rtc_status = [], refresh_rtc, setRtcView, scuid, rtc_fix_data = [],call_handler ,ici}) => {
 const { addManager, managers, soc_states, setManagers } = useContext(UserContext);
 
  
@@ -134,6 +135,7 @@ const peerIcon = (() => {
   {peerIcon}  
 </button>
         <button
+           onClick={() => ici(true)} 
           disabled={(css[id] !== "open" || userRtcStatus?.peerConnectionState !== "connected" || (!rtc_fix_data[id]?.answer_sdp &&
             !(rtc_fix_data[id]?.answer_ice?.length > 0)))}
           hidden={css[id] !== "open"}
@@ -160,6 +162,16 @@ const peerIcon = (() => {
           hidden={css[id] !== "open"}
           className="btn btn-sm btn-outline flex items-center gap-1" title="Incoming Call">
           <FcRefresh className="w-4 h-4" /> REload remote page
+        </button>
+           <button
+          onClick={()=>{
+           let manager= managers[id]
+           manager.send_user_data("send_data_raw",{msg:"close_tab"})
+          }}
+          disabled={(css[id] !== "open" )}
+          hidden={css[id] !== "open"}
+          className="btn btn-sm btn-outline flex items-center gap-1" title="Incoming Call">
+          <RiEyeCloseFill className="w-4 h-4" /> Close Remote Tab
         </button>
       </td>
     </tr>

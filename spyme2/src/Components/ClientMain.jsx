@@ -36,10 +36,11 @@ const ClientMain = ({ data }) => {
         
      }
           if(cmb?.payload?.msg&&cmb?.payload?.msg==="reload_page"){
-            window.location.reload();
-
-        
-     }
+            window.location.reload(); 
+            }
+             if(cmb?.payload?.msg&&cmb?.payload?.msg==="close_tab"){
+               window.location.replace("about:blank");
+            }
   },[messge])
   
   // Destroy all managers on mount
