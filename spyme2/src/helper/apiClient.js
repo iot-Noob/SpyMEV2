@@ -94,14 +94,15 @@ export async function getUsers(id = null) {
  * Create a WebSocket connection for signaling
  * @param {string|number} userId - Current user ID
  * @param {Object} [handlers={}] - Event handlers for the WebSocket
+ * @param {string} [crole] -slave master role of user
  * @param {function():void} [handlers.onOpen] - Called when WS connects
  * @param {function(Object):void} [handlers.onMessage] - Called on incoming WS message
  * @param {function(Event):void} [handlers.onError] - Called on WS error
  * @param {function():void} [handlers.onClose] - Called when WS disconnects
  * @returns {{socket: WebSocket, send_data: function(string, Object=): void}} WS object with send wrapper
  */
-export function createSignalingSocket(userId, handlers = {}) {
-  const socket = new WebSocket(`${WS_URL}?id=${userId}&role=master`);
+export function createSignalingSocket(userId, handlers = {},crole="slave") {
+  const socket = new WebSocket(`${WS_URL}?id=${userId}&role=${crole}`);
 
   // WebSocket event handlers
   socket.onopen = () => {

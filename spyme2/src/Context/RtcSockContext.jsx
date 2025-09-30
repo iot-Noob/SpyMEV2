@@ -5,7 +5,7 @@ import WebRTCManager from "../helper/WebRTCManager";
  * @typedef {Object} UserContextType
  * @property {string|null} cuid - Currently active user ID
  * @property {(id: string|null) => void} setCuid - Set the current user ID
- * @property {(userId: string) => void} addManager - Add a manager for a user
+ * @property {(userId: number, role: "slave" | "master") => void} addManager - Add a manager for a user
  * @property {Record<string, any>} managers - Active managers
  * @property {(userId: string) => void} destroy_manager - Destroy one manager
  * @property {() => void} destroy_all_managers - Destroy all managers
@@ -18,13 +18,13 @@ import WebRTCManager from "../helper/WebRTCManager";
 /** @type {UserContextType} */
 const defaultValue = {
   cuid: null,
-  setCuid: () => {},
-  addManager: () => {},
+  setCuid: () => { },
+  addManager: () => { },
   managers: {},
-  destroy_manager: () => {},
-  destroy_all_managers: () => {},
+  destroy_manager: () => { },
+  destroy_all_managers: () => { },
   rtc_contxt_data: {},
-  set_rtc_contxt: () => {},
+  set_rtc_contxt: () => { },
   soc_contxt: {},
   soc_states: {},
 };
@@ -43,12 +43,40 @@ const UserContext = createContext(defaultValue);
  * }} props
  */
 const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
-  const managers = useRef({});
+  const [managers, setMnager] = useState({});
+
   const [cuid, setCuid] = useState(null); // active user
   const rtcContext = useRef({});
   const socContext = useRef({});
   const [socStates, setSocStates] = useState({}); // { uid: "open" | "closed" }
-/**
+  const [messages, setMessages] = useState([]);
+
+  const [rtcStatuses, setRtcStatuses] = useState([]);
+
+  const updateRtcStatus = (userId) => {
+    const manager = managers[userId]?.wrtc;
+    if (!manager) return;
+
+    const status = manager.getStatus();
+
+    setRtcStatuses((prev) => {
+      const exists = prev.some((s) => s.userId === userId);
+
+      if (exists) {
+        // update only the matching user, keep others intact
+        return prev.map((s) =>
+          s.userId === userId ? { userId, status } : s
+        );
+      } else {
+        // add new user
+        return [...prev, { userId, status }];
+      }
+    });
+  };
+
+
+
+  /**
  * Convert a WebSocket readyState number to a human-readable string.
  *
  * @param {number} readyState - The WebSocket.readyState value.
@@ -64,41 +92,128 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
       default: return "unknown";
     }
   };
-/**
- * Add a WebRTC manager and WebSocket connection for a specific user.
- * If a manager already exists for the given `userId`, the function does nothing.
- *
- * @param {string} userId - The unique identifier of the user.
- *
- * The manager object stored internally contains:
- * @property {WebRTCManager} wrtc - Instance of the WebRTC manager for handling peer connections.
- * @property {WebSocket} wsoc - WebSocket connection used for signaling.
- * @property {(data: any) => void} send_user_data - Function to send data over the WebSocket.
- * @property {Record<string, Function>} wsh - Handlers for signaling messages.
- * @property {object} rtcss - STUN server configuration.
- * @property {() => void} [unbind] - Function to remove WebSocket event listeners.
- *
- * Side effects:
- * - Updates `managers.current` with a new manager object for the user.
- * - Adds the WebSocket to `socContext.current`.
- * - Tracks socket state and updates `socStates` state for UI consumption.
- * - Logs to console when a manager is successfully added.
- */
+  /**
+   * Add a WebRTC manager and WebSocket connection for a specific user.
+   * If a manager already exists for the given `userId`, the function does nothing.
+   *
+   * @param {string} userId - The unique identifier of the user.
+   *
+   * The manager object stored internally contains:
+   * @property {WebRTCManager} wrtc - Instance of the WebRTC manager for handling peer connections.
+   * @property {WebSocket} wsoc - WebSocket connection used for signaling.
+   * @property {(data: any) => void} send_user_data - Function to send data over the WebSocket.
+   * @property {Record<string, Function>} wsh - Handlers for signaling messages.
+   * @property {object} rtcss - STUN server configuration.
+   * @property {() => void} [unbind] - Function to remove WebSocket event listeners.
+   *
+   * Side effects:
+   * - Updates `managers.current` with a new manager object for the user.
+   * - Adds the WebSocket to `socContext.current`.
+   * - Tracks socket state and updates `socStates` state for UI consumption.
+   * - Logs to console when a manager is successfully added.
+   */
   // add manager explicitly
-  const addManager = useCallback((userId) => {
-    if (!userId || managers.current[userId]) return;
+  //   const addManager = useCallback((userId,role) => {
+  //     if (!userId || managers[userId]) return;
+
+  //     const rtc = new WebRTCManager(stun);
+  //     const { socket, send_data } = createSignalingSocket(userId, handlers,role);
+
+  //     // managers.current[userId] = {
+  //     //   wrtc: rtc,
+  //     //   wsoc: socket,
+  //     //   send_user_data: send_data,
+  //     //   wsh: handlers,
+  //     //   rtcss: stun,
+  //     // };
+  //    setMnager(prev => ({
+  //   ...prev, // keep existing managers
+  //   [userId]: {
+  //     ...prev[userId],
+  //     wrtc: rtc,
+  //     wsoc: socket,
+  //     send_user_data: send_data,
+  //     wsh: handlers,
+  //     rtcss: stun,
+  //   }
+  // }));
+
+  //     socContext.current[userId] = socket;
+
+  //     // track socket state
+  //     const updateState = () => {
+  //       setSocStates((prev) => ({
+  //         ...prev,
+  //         [userId]: getStateName(socket.readyState),
+  //       }));
+  //     };
+
+  //     updateState(); // initial
+  //     socket.addEventListener("open", updateState);
+  //     socket.addEventListener("close", updateState);
+  //     socket.addEventListener("error", updateState);
+  //     socket.addEventListener("message", (event) => {
+  //       try {
+  //         const msg = JSON.parse(event.data);
+  //         //console.log("📩 WS message from", userId, msg);
+
+  //         //  setMessages((prev) => {
+  //         //   const prevMsgs = prev[userId] || [];
+  //         //   return {
+  //         //     ...prev,
+  //         //     [userId]: [...prevMsgs, msg], // new reference
+  //         //   };
+  //         // });
+
+  //         setMessages((prev) => ({
+  //           ...prev,
+  //           [userId]: msg, // just one latest message
+  //         }));
+
+  //         updateRtcStatus(userId)
+  //       } catch (err) {
+  //         console.error("Bad WS message", err);
+  //       }
+  //     });
+  // if (!managers[userId]) {
+  //   managers[userId] = {};  // ✅ initialize
+  // }
+  //     // cleanup binding when destroyed
+  //     managers[userId].unbind = () => {
+  //       socket.removeEventListener("open", updateState);
+  //       socket.removeEventListener("close", updateState);
+  //       socket.removeEventListener("error", updateState);
+  //     };
+
+  //     console.log("✅ Added manager for user", userId);
+  //   }, [handlers, stun]);
+
+
+  const addManager = useCallback((userId, role) => {
+    if (!userId || managers[userId]) return;
 
     const rtc = new WebRTCManager(stun);
-    const { socket, send_data } = createSignalingSocket(userId, handlers);
+    const { socket, send_data } = createSignalingSocket(userId, handlers, role);
 
-    managers.current[userId] = {
-      wrtc: rtc,
-      wsoc: socket,
-      send_user_data: send_data,
-      wsh: handlers,
-      rtcss: stun,
-    };
-    
+    // managers.current[userId] = {
+    //   wrtc: rtc,
+    //   wsoc: socket,
+    //   send_user_data: send_data,
+    //   wsh: handlers,
+    //   rtcss: stun,
+    // };
+    setMnager(prev => ({
+      ...prev, // keep existing managers
+      [userId]: {
+        ...prev[userId],
+        wrtc: rtc,
+        wsoc: socket,
+        send_user_data: send_data,
+        wsh: handlers,
+        rtcss: stun,
+      }
+    }));
+
     socContext.current[userId] = socket;
 
     // track socket state
@@ -113,9 +228,34 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
     socket.addEventListener("open", updateState);
     socket.addEventListener("close", updateState);
     socket.addEventListener("error", updateState);
+    socket.addEventListener("message", (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        //console.log("📩 WS message from", userId, msg);
 
+        //  setMessages((prev) => {
+        //   const prevMsgs = prev[userId] || [];
+        //   return {
+        //     ...prev,
+        //     [userId]: [...prevMsgs, msg], // new reference
+        //   };
+        // });
+
+        setMessages((prev) => ({
+          ...prev,
+          [userId]: msg, // just one latest message
+        }));
+
+        updateRtcStatus(userId)
+      } catch (err) {
+        console.error("Bad WS message", err);
+      }
+    });
+    if (!managers[userId]) {
+      managers[userId] = {};  // ✅ initialize
+    }
     // cleanup binding when destroyed
-    managers.current[userId].unbind = () => {
+    managers[userId].unbind = () => {
       socket.removeEventListener("open", updateState);
       socket.removeEventListener("close", updateState);
       socket.removeEventListener("error", updateState);
@@ -124,10 +264,14 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
     console.log("✅ Added manager for user", userId);
   }, [handlers, stun]);
 
+
   // auto-create when cuid changes
   useEffect(() => {
     if (cuid) addManager(cuid);
   }, [cuid, addManager]);
+
+
+
 
   // destroy one
   /**
@@ -149,7 +293,7 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
  * Logs a message to the console indicating the manager was destroyed.
  */
   const destroyManager = (userId) => {
-    const m = managers.current[userId];
+    const m = managers[userId];
     if (!m) return;
 
     console.log("🗑 Destroying manager for user", userId);
@@ -159,9 +303,11 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
     if (m.wrtc) {
       if (typeof m.wrtc.cleanup === "function") m.wrtc.cleanup();
       if (typeof m.wrtc.close === "function") m.wrtc.close();
+      if (typeof m.wrtc.destroy === "function") m.wrtc.destroy(); // optional extra cleanup
     }
+    setRtcStatuses((prev) => prev.filter((s) => s.userId !== userId)); // ✅ remove from state
 
-    delete managers.current[userId];
+    delete managers[userId];
     delete socContext.current[userId];
 
     setSocStates((prev) => {
@@ -174,36 +320,50 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
   };
 
   // destroy all
-  const destroyAllManagers = () => {
-    Object.keys(managers.current).forEach(destroyManager);
-  };
-/**
- * @typedef {Object} UserContextValue
- * @property {string|null} cuid - Current active user ID.
- * @property {function(string|null): void} setCuid - Function to set the current user ID.
- * @property {function(string, Object): void} addManager - Function to add a new WebRTC + WebSocket manager for a user.
- * @property {Object.<string, Object>} managers - A map of all user managers keyed by user ID.
- * @property {function(string): void} destroy_manager - Function to destroy a manager for a specific user ID.
- * @property {function(): void} destroy_all_managers - Function to destroy all user managers.
- * @property {Object} rtc_contxt_data - Stores WebRTC context data (SDP, ICE candidates) for users.
- * @property {function(Object): void} set_rtc_contxt - Function to update the WebRTC context data.
- * @property {Object} soc_contxt - Current WebSocket context object (e.g., { socket, send_data }).
- * @property {Object} soc_states - UI-friendly state object reflecting socket connection states.
- */
+  function destroyAllManagers() {
+    if (!managers || typeof managers !== "object") {
+      console.warn("No managers found to destroy");
+      return;
+    }
 
-/** @type {UserContextValue} */
+    Object.keys(managers).forEach((key) => {
+      if (managers[key] && typeof managers[key].destroy === "function") {
+        managers[key].destroy();
+      }
+    });
+  }
+
+  /**
+   * @typedef {Object} UserContextValue
+   * @property {string|null} cuid - Current active user ID.
+   * @property {function(string|null): void} setCuid - Function to set the current user ID.
+   * @property {function(string, Object): void} addManager - Function to add a new WebRTC + WebSocket manager for a user.
+   * @property {Object.<string, Object>} managers - A map of all user managers keyed by user ID.
+   * @property {function(string): void} destroy_manager - Function to destroy a manager for a specific user ID.
+   * @property {function(): void} destroy_all_managers - Function to destroy all user managers.
+   * @property {Object} rtc_contxt_data - Stores WebRTC context data (SDP, ICE candidates) for users.
+   * @property {function(Object): void} set_rtc_contxt - Function to update the WebRTC context data.
+   * @property {Object} soc_contxt - Current WebSocket context object (e.g., { socket, send_data }).
+   * @property {Object} soc_states - UI-friendly state object reflecting socket connection states.
+   */
+
+  /** @type {UserContextValue} */
   const value = {
     cuid,
     setCuid,
     addManager,
-    managers: managers.current,
+    managers: managers,
+    setManagers: setMnager,
     destroy_manager: destroyManager,
     destroy_all_managers: destroyAllManagers,
     rtc_contxt_data: rtcContext.current,
     set_rtc_contxt: (data) => (rtcContext.current = data),
     soc_contxt: socContext.current,
     soc_states: socStates, // 👈 UI can use this
-    setSocState:setSocStates
+    setSocState: setSocStates,
+    messge: messages,
+    rtc_status: rtcStatuses,
+    update_rtc_status: updateRtcStatus
   };
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;

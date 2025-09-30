@@ -111,9 +111,20 @@ addStream(stream) {
     await this.waitForIceGatheringComplete(); // NEW: wait for all ICE candidates
     return offer;
   }
-
+/**
+ * Create an SDP answer for an incoming remote offer.
+ *
+ * @param {{ type: string, sdp: string } | string} [remoteOffer] - 
+ *        The remote offer, either as a full RTCSessionDescriptionInit object 
+ *        ({ type: "offer", sdp: "..." }) or just a raw SDP string.
+ * @param {Array<RTCIceCandidateInit>} [ice_data=[]] - 
+ *        An array of ICE candidates from the remote peer.
+ * @param {MediaStream|boolean} [stream=false] - 
+ *        Local media stream to attach, or `false` if none.
+ * @returns {Promise<RTCSessionDescriptionInit>} The generated SDP answer.
+ */
   async createAnswer(remoteOffer, ice_data = [],stream=false) {
-    this.createPeer();
+    this.createPeer();  
     await this.peer.setRemoteDescription(
       new RTCSessionDescription(remoteOffer)
     );

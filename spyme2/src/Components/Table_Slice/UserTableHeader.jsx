@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowPathIcon, PlusCircleIcon } from "@heroicons/react/24/solid";
+import { ArrowPathIcon, PlusCircleIcon ,TrashIcon} from "@heroicons/react/24/solid";
 
 const UserTableHeader = ({
   searchTerm,
@@ -7,7 +7,9 @@ const UserTableHeader = ({
   rowsPerPage,
   setRowsPerPage,
   openModal,
-  refreshApi
+  refreshApi,
+  clear_all_data,
+  dam
 }) => {
   return (
     <div className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
@@ -44,6 +46,17 @@ const UserTableHeader = ({
           onClick={openModal}
         >
           <PlusCircleIcon className="w-5 h-5" /> Add User
+        </button>
+         <button
+          className="btn btn-sm btn-outline flex items-center gap-1"
+          title="Add new user"
+          onClick={()=>{
+            clear_all_data({});
+            dam()
+        
+        }}
+        >
+          <TrashIcon className="w-5 h-5" /> Remove all sdp ice data
         </button>
       </div>
     </div>

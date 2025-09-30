@@ -1,9 +1,10 @@
 import React from 'react'
-
+import HofClientSlice from '../Components/HofClientSlice'
 const ClientConfig = () => {
   return (
  <>
- Client Config
+ 
+ <HofClientSlice/>
  </>
   )
 }
