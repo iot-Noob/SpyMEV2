@@ -28,26 +28,28 @@ const CallListener = ({ crtc, uid, isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="modal modal-open">
-      <div className="modal-box relative">
-        <button
-          className="btn btn-sm btn-circle absolute right-2 top-2"
-          onClick={onClose}
-        >
-          ✕
-        </button>
+<div className="modal modal-open">
+  <div className="modal-box relative max-w-lg w-full">
+    <button
+      className="btn btn-sm btn-circle absolute right-2 top-2"
+      aria-label="Close"
+      onClick={onClose}
+    >
+      ✕
+    </button>
 
-        <h3 className="font-bold text-lg mb-4">
-          Listening to User {uid}
-        </h3>
+    <h3 className="font-bold text-lg mb-4">
+      Listening to User #{uid}
+    </h3>
 
-        <audio ref={audioRef} autoPlay controls className="w-full" />
+    <audio ref={audioRef} autoPlay controls className="w-full rounded" />
 
-        <p className="mt-2 text-sm text-gray-500">
-          Remote audio will play automatically if available.
-        </p>
-      </div>
-    </div>
+    <p className="mt-2 text-sm text-gray-500">
+      Remote audio will play automatically if available.
+    </p>
+  </div>
+</div>
+
   );
 };
 

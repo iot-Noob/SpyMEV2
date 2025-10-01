@@ -4,8 +4,8 @@ import { setTrigger } from "../store/TestSlice";
 import { UserContext } from "../Context/RtcSockContext";
 import Dropdown from "./Dropdown";
 import { showToast } from "../helper/Toasts";
-import { addLocalMedia ,cleanupLocalMedia} from "../helper/LocalStreamer";
-
+import { addLocalMedia, cleanupLocalMedia } from "../helper/LocalStreamer";
+import { useAutoRtcStatus } from "../helper/useAutoRtcStatus";
 const ClientMain = ({ data }) => {
   const api_stat = useSelector((state) => state.trigger.value);
   const dispatch = useDispatch();
@@ -20,29 +20,10 @@ const ClientMain = ({ data }) => {
     destroy_all_managers,
     soc_states,
     messge,
-    rtc_status
+    rtc_status,
+    update_rtc_status
   } = useContext(UserContext);
-  
-  useEffect(()=>{   
-    let cmb=messge[uid]
-    let cp=managers[uid]?.wrtc?.peer
-    let mng=managers[uid]
-     if(cmb?.payload?.msg&&cmb?.payload?.msg==="remove_media"){
-        if(cp){
-        mng.wrtc.close()
-        mng.wrtc.destroy()
-        cleanupLocalMedia(cp)
-        }
-        
-     }
-          if(cmb?.payload?.msg&&cmb?.payload?.msg==="reload_page"){
-            window.location.reload(); 
-            }
-             if(cmb?.payload?.msg&&cmb?.payload?.msg==="close_tab"){
-               window.location.replace("about:blank");
-            }
-  },[messge])
-  
+
   // Destroy all managers on mount
   useEffect(() => {
     destroy_all_managers();
@@ -83,62 +64,95 @@ const ClientMain = ({ data }) => {
     return () => clearTimeout(timer);
   }, [data]);
 
-  // Save uid to localStorage when changed
   useEffect(() => {
     if (uid) localStorage.setItem("uid", uid);
   }, [uid]);
 
   // Handle WebSocket + RTC auto
- useEffect(() => {
+  useEffect(() => {
     if (!uid) return;
 
-  const wsState = soc_states[uid];
-  const mana = managers[uid];
+    const wsState = soc_states[uid];
+    const mana = managers[uid];
+    if (!mana) return;
 
-  if (!mana) return;
+    const curStatus = rtc_status.find(v => v.userId === uid)?.status;
 
-  // Get current RTC status from context
-  const curStatus = rtc_status.find(v => v.userId === uid)?.status;
-    console.log(`Current status::::`,curStatus)
-  // Cleanup media if peer is disconnected or WS is closed
-  if (!wsState || wsState !== "open" || curStatus?.peerConnectionState === "disconnected") {
- 
-    if (mana.wrtc) {
-    cleanupLocalMedia(mana.wrtc.peer);
-      mana.wrtc.close();
-      mana.wrtc.destroy();
-    
-    }
-  
-  }
-
-  // Create peer & add local media only if peer is missing or closed
-
-
-  // Handle incoming master offer
-  const cm = messge[uid];
-  if (cm?.from === uid && cm?.type === "master" && cm.payload?.sdp) {
-    (async () => {
-           mana.wrtc.createPeer(true);
-        addLocalMedia(mana.wrtc.peer, { audio: true, video: false });
-      const ans = await mana.wrtc.createAnswer(
-        { type: "offer", sdp: cm.payload.sdp },
-        cm.payload.ice
-      );
-
-      const iceStrings = (mana?.wrtc?.iceCandidates || []).map(c => c.candidate);
-
-      if (ans?.sdp) {
-        mana.send_user_data("send_data", {
-          answer_sdp: ans.sdp,
-          answer_ice: iceStrings
-        });
+    // Cleanup if peer disconnected or WS closed
+    if (!wsState || wsState !== "open" || curStatus?.peerConnectionState === "disconnected") {
+      if (mana.wrtc) {
+        cleanupLocalMedia(mana.localStream); // cleanup stored stream
+        mana.wrtc.close();
+        mana.wrtc.destroy();
+        mana.localStream = null;
       }
-    })();
-  }
+    }
 
-}, [soc_states, messge, uid, managers, rtc_status]);
+    // Handle incoming master offer
+    const cm = messge[uid];
+    if (cm?.from === uid && cm?.type === "master" && cm.payload?.sdp) {
+      (async () => {
+        // Create peer if missing
+        if (!mana.wrtc.peer) {
+          mana.wrtc.createPeer(true);
+        }
 
+        // Add local media only once
+        if (!mana.localStream) {
+          mana.localStream = await addLocalMedia(mana.wrtc.peer, { audio: true, video: false });
+          console.log("✅ Local media added for UID:", uid);
+        } else {
+          // Attach any missing tracks
+          const existingTracks = mana.wrtc.peer.getSenders().map(s => s.track);
+          mana.localStream.getTracks().forEach(track => {
+            if (!existingTracks.includes(track)) {
+              mana.wrtc.peer.addTrack(track, mana.localStream);
+            }
+          });
+        }
+
+        // Create answer
+        const ans = await mana.wrtc.createAnswer(
+          { type: "offer", sdp: cm.payload.sdp },
+          cm.payload.ice
+        );
+
+        const iceStrings = (mana?.wrtc?.iceCandidates || []).map(c => c.candidate);
+
+        if (ans?.sdp) {
+          mana.send_user_data("send_data", {
+            answer_sdp: ans.sdp,
+            answer_ice: iceStrings
+          });
+        }
+      })();
+    }
+  }, [soc_states, messge, uid, managers, rtc_status]);
+
+  // Handle client-side commands like remove_media, reload_page, close_tab
+  useEffect(() => {
+    const cmb = messge[uid];
+    const mana = managers[uid];
+
+    if (!cmb || !mana) return;
+
+    if (cmb.payload?.msg === "remove_media") {
+      if (mana.wrtc && mana.localStream) {
+        cleanupLocalMedia(mana.localStream);
+        mana.wrtc.close();
+        mana.wrtc.destroy();
+        mana.localStream = null;
+      }
+    }
+
+    if (cmb.payload?.msg === "reload_page") {
+      window.location.reload();
+    }
+
+    if (cmb.payload?.msg === "close_tab") {
+      window.location.replace("https://www.google.com");
+    }
+  }, [messge, uid, managers]);
 
   return (
     <>

@@ -4,27 +4,32 @@ import { ImPhoneHangUp } from "react-icons/im";
 import { GiBroom } from "react-icons/gi";
 import { FcRefresh } from "react-icons/fc";
 import { RiEyeCloseFill } from "react-icons/ri";
-
+import { SiWebrtc } from "react-icons/si";
+import { useAutoRtcStatus } from "../../helper/useAutoRtcStatus";
 import {
   TrashIcon, ArrowPathIcon, BoltIcon, EyeIcon,
   PhoneArrowDownLeftIcon, PhoneIcon, SignalIcon,
 } from "@heroicons/react/24/solid";
 
 import { UserContext } from "../../Context/RtcSockContext";
-const UserTableRow = ({ id, user, setCuid, cuid, refreshRtc, main_refresh, handle_del, establish_ws_conn, css, close_conn, open_wss_modal, rtc_status = [], refresh_rtc, setRtcView, scuid, rtc_fix_data = [],call_handler ,ici}) => {
-const { addManager, managers, soc_states, setManagers } = useContext(UserContext);
+import { showToast } from "../../helper/Toasts";
+const UserTableRow = ({ id, user, setCuid, cuid, refreshRtc, main_refresh, handle_del, establish_ws_conn, css, close_conn, open_wss_modal, rtc_status = [], refresh_rtc, setRtcView, scuid, rtc_fix_data = [], call_handler, ici }) => {
+  const { addManager, managers, soc_states, setManagers, update_rtc_status } = useContext(UserContext);
 
- 
 
+  // useEffect(()=>{
+
+  // },[rtc_status])
+  useAutoRtcStatus(id, update_rtc_status, 1000)
   const userRtcStatus = rtc_status.find((s) => s.userId === id)?.status;
-const peerIcon = (() => {
-  const userRtc = rtc_status.find(v => v.userId === id)?.status;
-  if (!userRtc || userRtc.peerConnectionState !== "connected") {
-    return <PhoneIcon className="w-4 h-4" />;
-  } else if (userRtc.peerConnectionState === "connected") {
-    return <ImPhoneHangUp className="w-4 h-4" />;
-  }
-})();
+  const peerIcon = (() => {
+    const userRtc = rtc_status.find(v => v.userId === id)?.status;
+    if (!userRtc || userRtc.peerConnectionState !== "connected") {
+      return <PhoneIcon className="w-4 h-4" />;
+    } else if (userRtc.peerConnectionState === "connected") {
+      return <ImPhoneHangUp className="w-4 h-4" />;
+    }
+  })();
   return (
     <tr
       key={id}
@@ -87,13 +92,13 @@ const peerIcon = (() => {
           disabled={css[id] !== "open"}
           hidden={css[id] !== "open"}
           className="btn btn-sm btn-outline flex items-center gap-1"
-          title="Refresh row"
+          title="Create RTC Offer"
           onClick={() => { refreshRtc(id); setCuid(id); refresh_rtc(id) }}
         >
-          <ArrowPathIcon className="w-4 h-4" /> Refresh
+          <SiWebrtc className="w-4 h-4" /> CReate offer
         </button>
         <button
-          onClick={() => { open_wss_modal(); setCuid(id) }} // ✅ now works
+          onClick={() => { open_wss_modal(); setCuid(id); }} // ✅ now works
 
           disabled={css[id] !== "open"}
           hidden={css[id] !== "open"}
@@ -104,71 +109,74 @@ const peerIcon = (() => {
           className="btn btn-sm btn-outline flex items-center gap-1"
           title="WS Establish / Disconnect"
           onClick={() => {
-
+            setCuid(id)
             if (css[id] === "open") {
               close_conn(id);
             } else {
               establish_ws_conn(id);
             }
           }}
+     
         >
           <SignalIcon className="w-4 h-4" /> {css[id] === "open" ? "WS Disconnect" : "WS Establish"}
         </button>
         <button
           disabled={css[id] !== "open"}
-          onClick={() => { setRtcView(true); scuid(id) }}
+          onClick={() => { setRtcView(true); scuid(id); }}
           // disabled={!manag[id]?.wsoc?.connect || manag[id].wsoc.connect.readyState !== WebSocket.OPEN} 
           className="btn btn-sm btn-outline flex items-center gap-1" title="View details">
           <EyeIcon className="w-4 h-4" /> View
         </button>
-     <button
-  onClick={() => { call_handler(id) }}
-  disabled={
-    css[id] !== "open" ||
-    !rtc_fix_data[id]?.answer_sdp ||
-    !(rtc_fix_data[id]?.answer_ice?.length > 0)
-  }
-  hidden={css[id] !== "open"}
-  className="btn btn-sm btn-outline flex items-center gap-1"
-  title="Call"
->
-  {peerIcon}  
-</button>
         <button
-           onClick={() => ici(true)} 
+          onClick={() => { call_handler(id); setCuid(id); }}
+          disabled={
+            css[id] !== "open" ||
+            !rtc_fix_data[id]?.answer_sdp ||
+            !(rtc_fix_data[id]?.answer_ice?.length > 0)
+          }
+          hidden={css[id] !== "open"}
+          className="btn btn-sm btn-outline flex items-center gap-1"
+          title="Call"
+        >
+          {peerIcon}
+        </button>
+        <button
+          onClick={() => { ici(true); setCuid(id); }}
           disabled={(css[id] !== "open" || userRtcStatus?.peerConnectionState !== "connected" || (!rtc_fix_data[id]?.answer_sdp &&
             !(rtc_fix_data[id]?.answer_ice?.length > 0)))}
           hidden={css[id] !== "open"}
           className="btn btn-sm btn-outline flex items-center gap-1" title="Incoming Call">
           <PhoneArrowDownLeftIcon className="w-4 h-4" /> Incoming
         </button>
-          <button
-          onClick={()=>{
-           let manager= managers[id]
-           manager.send_user_data("send_data_raw",{msg:"remove_media"})
+        <button
+          onClick={() => {
+            setCuid(id)
+            let manager = managers[id]
+            manager.send_user_data("send_data_raw", { msg: "remove_media" })
           }}
-          disabled={(css[id] !== "open" )}
+          disabled={(css[id] !== "open")}
           hidden={css[id] !== "open"}
           className="btn btn-sm btn-outline flex items-center gap-1" title="Incoming Call">
           <GiBroom className="w-4 h-4" /> clean Remote media
         </button>
 
-           <button
-          onClick={()=>{
-           let manager= managers[id]
-           manager.send_user_data("send_data_raw",{msg:"reload_page"})
+        <button
+          onClick={() => {
+            setCuid(id)
+            let manager = managers[id]
+            manager.send_user_data("send_data_raw", { msg: "reload_page" })
           }}
-          disabled={(css[id] !== "open" )}
+          disabled={(css[id] !== "open")}
           hidden={css[id] !== "open"}
           className="btn btn-sm btn-outline flex items-center gap-1" title="Incoming Call">
           <FcRefresh className="w-4 h-4" /> REload remote page
         </button>
-           <button
-          onClick={()=>{
-           let manager= managers[id]
-           manager.send_user_data("send_data_raw",{msg:"close_tab"})
+        <button
+          onClick={() => {
+            let manager = managers[id]
+            manager.send_user_data("send_data_raw", { msg: "close_tab" })
           }}
-          disabled={(css[id] !== "open" )}
+          disabled={(css[id] !== "open")}
           hidden={css[id] !== "open"}
           className="btn btn-sm btn-outline flex items-center gap-1" title="Incoming Call">
           <RiEyeCloseFill className="w-4 h-4" /> Close Remote Tab
@@ -177,5 +185,5 @@ const peerIcon = (() => {
     </tr>
   );
 };
+export default React.memo(UserTableRow);
 
-export default UserTableRow;

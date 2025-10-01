@@ -12,13 +12,15 @@ import { addLocalMedia } from "../helper/LocalStreamer";
 import WebSocketStatusModal from "./WebSocketStatusModal";
 import WebRtcViewerModal from "./WebRtcViewerModal";
 import CallListener from "./CallListener";
+import { useAutoWsStatus } from "../helper/useAutoRtcStatus";
+import UserCardRow from "./UserCardRow";
 const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
- const { 
-  cuid, setCuid, addManager, managers, destroy_manager, 
-   destroy_all_managers, rtc_contxt_data, set_rtc_contxt, 
-   soc_contxt, soc_states, messge, rtc_status, update_rtc_status,
-   setManagers, setSocState 
- } = useContext(UserContext);
+  const {
+    cuid, setCuid, addManager, managers, destroy_manager,
+    destroy_all_managers, rtc_contxt_data, set_rtc_contxt,
+    soc_contxt, soc_states, messge, rtc_status, update_rtc_status,
+    setManagers, setSocState, disconnect_manager
+  } = useContext(UserContext);
   const users = Object.entries(data);
   let dispatch = useDispatch()
   let api_rr = useSelector((state) => state.trigger.value)
@@ -31,15 +33,28 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
   let [rtcV, setRtcV] = useState(false)
   let [id, cid] = useState()
   let [rtcData, setRtcData] = useState({})
-  let [callMOdal,setCallModal]=useState(false)
-  const update_all_rtc_data = () => {
-    Object.keys(data).forEach(update_rtc_status);
-  };
+  let [callMOdal, setCallModal] = useState(false)
+
+
   useEffect(() => {
-    destroy_all_managers()
+    update_rtc_status(cuid)
+  }, [rtc_status[cuid]])
+  // const update_all_rtc_data = () => {
+  //   Object.keys(data).forEach(update_rtc_status);
+  // };
 
-  }, [])
+  // useEffect(() => {
+  //   destroy_all_managers()
 
+  // }, [])
+
+  let refresh_api = () => {
+    dispatch(setTrigger(!api_rr))
+    // let stat=update_all_rtc_data()
+    // console.log("update status rtc:::",stat)
+  }
+
+  ///--------------Signaling socket and set answer ice and SDP hre. --------------
   useEffect(() => {
     const msg = messge?.[cuid];
 
@@ -61,16 +76,13 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
           },
         };
       });
+      refresh_api()
     }
-  }, [messge, cuid]);
+  }, [messge]);
 
+  ///--------------Signaling socket and set answer ice and SDP hre End.  --------------
 
-
-  let refresh_api = () => {
-    dispatch(setTrigger(!api_rr))
-    update_all_rtc_data()
-
-  }
+ 
 
   let handle_delete = async (id) => {
     try {
@@ -96,55 +108,79 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
       }
     }
   };
-
   let create_offer = async (id) => {
     console.log("Creating offer for user:", id);
-    setCuid(id);
 
-    // Ensure manager + socket exists
-    let cusc = soc_contxt[id];
-    if (!cusc || cusc.readyState !== WebSocket.OPEN) {
+    // Get the manager directly
+    const manager = managers[id];
+    if (!manager) {
+      // Create manager if it doesn't exist
       addManager(id, "master");
-      cusc = soc_contxt[id];
-
-      // Wait for socket to open
-      await new Promise((resolve) => {
-        if (cusc.readyState === WebSocket.OPEN) return resolve();
-        cusc.addEventListener("open", () => resolve(), { once: true });
-      });
+    }
+    if (!soc_contxt[id] || soc_contxt[id].readyState !== WebSocket.OPEN) {
+      console.error("❌ WebSocket not connected, cannot create offer for user", id);
+      showToast.error("WebSocket not connected for this user");
+      return;
+    }
+    const currentManager = managers[id];
+    if (!currentManager || !currentManager.wrtc) {
+      console.warn("Manager or WebRTC instance not ready for user:", id);
+      showToast.warn(`Manager or WebRTC instance not ready for user ${id}`)
+      return;
     }
 
-    // Now safe to access manager
-    const manager = managers[id];
-    if (!manager || !manager.wrtc) return;
-
     try {
-      manager.wrtc.createPeer(true)
-      // 1️⃣ Attach local media before creating offer
-      const localStream = await addLocalMedia(manager.wrtc.peer, { audio: true, video: false });
-      console.log("Local media ready:", localStream);
+      // 1️⃣ Create peer and attach local media
+      if (!currentManager.wrtc.peer) {
+        // Create peer only once
+        currentManager.wrtc.createPeer(true);
+
+        // Attach local media only once and store it
+        if (!currentManager.localStream) {
+          currentManager.localStream = await addLocalMedia(currentManager.wrtc.peer, { audio: true, video: false });
+          console.log("Local media ready for user", id, currentManager.localStream);
+        }
+      } else if (currentManager.localStream) {
+        // If peer already exists, ensure tracks are added (if missing)
+        const existingTracks = currentManager.wrtc.peer.getSenders().map(s => s.track);
+        currentManager.localStream.getTracks().forEach(track => {
+          if (!existingTracks.includes(track)) {
+            currentManager.wrtc.peer.addTrack(track, currentManager.localStream);
+          }
+        });
+      }
+
 
 
       // 2️⃣ Create WebRTC offer
-      const offer = await manager.wrtc.createOffer();
-      const iceStrings = manager.wrtc.iceCandidates.map(c => c.candidate);
+      const offer = await currentManager.wrtc.createOffer();
+      const iceStrings = currentManager.wrtc.iceCandidates.map(c => c.candidate);
+
+      // 3️⃣ Update local RTC data (per-user)
       setRtcData(prev => ({
         ...prev,
         [id]: {
           ...prev[id],
-          sdp: offer.sdp,        // just keep sdp string
+          sdp: offer.sdp,
           ice: iceStrings || []
         }
       }));
-      // 3️⃣ Send offer + ICE to peer
-      cusc.send(JSON.stringify({
-        action: "send_data",
-        payload: { sdp: offer.sdp, ice: iceStrings }
-      }));
+
+      // 4️⃣ Send offer + ICE to peer via their WebSocket
+      const ws = soc_contxt[id];
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          action: "send_data",
+          payload: { sdp: offer.sdp, ice: iceStrings }
+        }));
+      } else {
+        console.warn("WebSocket not ready for user", id);
+      }
     } catch (err) {
-      console.error("Failed to attach local media or create offer:", err);
+      console.error("Failed to create offer for user", id, err);
     }
   };
+
 
   let open_ws_conn = async (id) => {
     console.log("Establishing WebSocket connection for user ID:", id);
@@ -179,7 +215,34 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
 
     return ws;
   };
+
+  //   let open_ws_conn = async (id) => {
+  //   let ws = soc_contxt[id];
+
+  //   // Recreate if missing or closed
+  //   if (!ws || ws.readyState !== WebSocket.OPEN) {
+  //     console.log("Creating new manager and WS for user", id);
+  //     addManager(id, "master"); // create manager + socket
+  //     ws = soc_contxt[id];
+
+  //     if (!ws) {
+  //       console.error("Failed to create WebSocket for user", id);
+  //       return null;
+  //     }
+
+  //     await new Promise((resolve, reject) => {
+  //       if (ws.readyState === WebSocket.OPEN) return resolve();
+
+  //       ws.addEventListener("open", () => resolve(), { once: true });
+  //       ws.addEventListener("error", (err) => reject(err), { once: true });
+  //     });
+  //   }
+
+  //   return ws;
+  // };
+
   let close_ws_connection = (id) => {
+
     destroy_manager(id)
   };
 
@@ -188,49 +251,23 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
   }
 
   let handle_soc_stats = (id) => {
-    const managerObj = managers[id];
-    if (!managerObj) return;
+    try {
+      const managerObj = managers[id];
+      if (!managerObj) return;
 
-    // Check if socket is open
-    if (soc_states[id] === "open") {
-      const wrtc = managerObj.wrtc;
-      managerObj.send_user_data("get_socks")
-      let msgs = messge[id]?.[messge[id].length - 1]
+      // Check if socket is open
+      if (soc_states[id] === "open") {
+        const wrtc = managerObj.wrtc;
+        managerObj.send_user_data("get_socks")
+        let msgs = messge[id]?.[messge[id].length - 1]
 
-      cid(id)
-      return msgs ? msgs : {}
+        cid(id)
+        return msgs ? msgs : {}
+      }
+    } catch (err) {
+      showToast.error(`Error occur handle soc state due to \n\n${err}`)
     }
-  };
 
-  // Filtering & sorting
-  const filteredUsers = useMemo(() => {
-    let filtered = users.filter(([id, user]) =>
-      user.username.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    if (sortKey) {
-      filtered.sort(([idA, userA], [idB, userB]) => {
-        const valA = userA[sortKey] ?? "";
-        const valB = userB[sortKey] ?? "";
-        if (valA < valB) return sortAsc ? -1 : 1;
-        if (valA > valB) return sortAsc ? 1 : -1;
-        return 0;
-      });
-    }
-    return filtered;
-  }, [users, searchTerm, sortKey, sortAsc]);
-
-  const totalPages = Math.ceil(filteredUsers.length / rowsPerPage);
-  const currentUsers = filteredUsers.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
-
-  const handleSort = (key) => {
-    if (sortKey === key) setSortAsc(!sortAsc);
-    else {
-      setSortKey(key);
-      setSortAsc(true);
-    }
   };
 
   let rtc_vc = () => {
@@ -241,7 +278,7 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
   }
   let handle_call = async (id) => {
     console.log("handle call for id:", id);
-
+    update_rtc_status(id)
     const manag = managers[id];
     if (!manag || !manag.wrtc) return;
 
@@ -275,6 +312,41 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
   };
 
 
+  ///--------------Handle Functions for table End. --------------
+
+  ///--------------sORT TABLE START. --------------
+  // Filtering & sorting
+  const filteredUsers = useMemo(() => {
+    let filtered = users.filter(([id, user]) =>
+      user.username.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    if (sortKey) {
+      filtered.sort(([idA, userA], [idB, userB]) => {
+        const valA = userA[sortKey] ?? "";
+        const valB = userB[sortKey] ?? "";
+        if (valA < valB) return sortAsc ? -1 : 1;
+        if (valA > valB) return sortAsc ? 1 : -1;
+        return 0;
+      });
+    }
+    return filtered;
+  }, [users, searchTerm, sortKey, sortAsc]);
+
+  const totalPages = Math.ceil(filteredUsers.length / rowsPerPage);
+  const currentUsers = filteredUsers.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortAsc(!sortAsc);
+    else {
+      setSortKey(key);
+      setSortAsc(true);
+    }
+  };
+  ///--------------sORT TABLE END. --------------
+
   return (
     <>
       <div className="p-4 w-full">
@@ -295,7 +367,8 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
 
           {/* Table */}
           <div className="overflow-x-auto">
-            <table className="table w-full text-sm md:text-base border border-gray-200 rounded-lg">
+            
+            {/* <table className="table w-full text-sm md:text-base border border-gray-200 rounded-lg">
               <thead className="bg-indigo-100 text-gray-700 uppercase">
                 <tr>
                   <th onClick={() => handleSort("username")} className="cursor-pointer px-4 py-2">
@@ -345,14 +418,51 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
                       scuid={setCuid}
                       rtc_fix_data={rtcData}
                       call_handler={handle_call}
-                       ici={()=>{setCallModal(true);setCuid(id)}}
+                      ici={() => { setCallModal(true); setCuid(id) }}
 
                     />
                   ))
                 )}
               </tbody>
-            </table>
+            </table> */}
           </div>
+<div className="flex flex-col gap-4">
+  {currentUsers.length === 0 ? (
+    <div className="text-center py-8 text-gray-500">
+      No users found
+    </div>
+  ) : (
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {currentUsers.map(([id, user]) => (
+        <UserCardRow
+          rtc_status={rtc_status}
+          key={id}
+          id={id}
+          user={user}
+          setCuid={setCuid}
+          cuid={cuid}
+          refreshRtc={() => { create_offer(id) }}
+          main_refresh={refresh_api}
+          handle_del={handle_delete}
+          establish_ws_conn={open_ws_conn}
+          css={soc_states}
+          close_conn={close_ws_connection}
+          open_wss_modal={() => {
+            Som(true);
+            handle_soc_stats(id);
+          }}
+          refresh_rtc={update_rtc_status}
+          setRtcView={setRtcV}
+          scuid={setCuid}
+          rtc_fix_data={rtcData}
+          call_handler={handle_call}
+          ici={() => { setCallModal(true); setCuid(id) }}
+        />
+      ))}
+    </div>
+  )}
+</div>
+
 
           {/* Pagination */}
           <UserTablePagination
@@ -381,10 +491,10 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
 
       />
       <CallListener
-      crtc={managers[cuid]?.wrtc}
-      uid={cuid}
-      isOpen={callMOdal}
-      onClose={()=>{setCallModal(false);}}
+        crtc={managers[cuid]?.wrtc}
+        uid={cuid}
+        isOpen={callMOdal}
+        onClose={() => { setCallModal(false); }}
       />
     </>
   );
