@@ -19,7 +19,7 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
     cuid, setCuid, addManager, managers, destroy_manager,
     destroy_all_managers, rtc_contxt_data, set_rtc_contxt,
     soc_contxt, soc_states, messge, rtc_status, update_rtc_status,
-    setManagers, setSocState, disconnect_manager
+     setSocState, disconnect_manager
   } = useContext(UserContext);
   const users = Object.entries(data);
   let dispatch = useDispatch()
@@ -306,6 +306,7 @@ const UserTables = ({ openModal, closeModal, data = {}, handlers = {} }) => {
       }
     }
     if (pcs === "connected") {
+      manag.send_user_data("send_data_raw", { msg: "remove_media" })
       manag.wrtc.close()
       manag.wrtc.destroy()
     }

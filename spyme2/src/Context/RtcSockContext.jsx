@@ -184,11 +184,95 @@ const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
     console.log("🧹 All managers destroyed");
   }, [managers, destroyManager]);
 
+  // Destroy/close WebRTC for current user
+
+// const destroyCurrentWebrtc = useCallback((userId = cuid) => {
+//   if (!userId) return;
+// setManagers(prev => {
+//   const m = prev[userId];
+//   if (!m) return prev;
+
+//   console.log("🗑 Destroying user's WebRTC:", userId);
+
+//   // Cleanup WebRTC and local media
+//   m.wrtc?.close?.();
+//   m.wrtc?.destroy?.();
+//   if (m.localStream) {
+//     m.localStream.getTracks().forEach(track => track.stop());
+//     m.localStream = null;
+//   }
+
+//   return {
+//     ...prev,
+//     [userId]: { ...m, closed: true } // mark closed instead of deleting
+//   };
+// });
+
+
+//   setRtcStatuses(prev => prev.filter(s => s.userId !== userId));
+//   setSocStates(prev => {
+//     const next = { ...prev };
+//     delete next[userId];
+//     return next;
+//   });
+//   delete socContext.current[userId];
+
+//   if (cuid === userId) setCuid(null);
+// }, [cuid]);
+
+const destroyCurrentWebrtc = useCallback((userId = cuid) => {
+  if (!userId) return;
+
+  setManagers(prev => {
+    const m = prev[userId];
+    if (!m) return prev;
+
+    console.log("🗑 Cleaning up WebRTC for:", userId);
+
+    // Cleanup WebRTC and local media
+    m.wrtc?.cleanup?.();
+    m.wrtc?.close?.();
+    m.wrtc?.destroy?.();
+
+    if (m.localStream) {
+      m.localStream.getTracks().forEach(track => track.stop());
+      m.localStream = null;
+    }
+
+    // Keep the manager object for WebSocket
+    // return {
+    //   ...prev,
+    //   [userId]: {
+    //     ...m,
+    //     wrtc: null,
+    //     localStream: null,
+    //   }
+    // };
+    return {
+  ...prev,
+  [userId]: {
+    ...m,
+    wrtc: null,
+    localStream: null,
+  }
+};
+  });
+
+  setRtcStatuses(prev => {
+  const next = prev.filter(s => s.userId !== userId);
+  return next.length === prev.length ? [...next] : next;
+});
+  // leave socStates and socContext untouched
+}, [cuid]);
+
+
   const value = {
+    destroyCurrentWebrtc:destroyCurrentWebrtc,
     cuid,
     setCuid,
     addManager,
     managers,
+    setManager:setManagers,
     destroy_manager: destroyManager,
     destroy_all_managers: destroyAllManagers,
     rtc_contxt_data: rtcContext.current,

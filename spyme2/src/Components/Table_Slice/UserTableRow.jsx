@@ -14,7 +14,7 @@ import {
 import { UserContext } from "../../Context/RtcSockContext";
 import { showToast } from "../../helper/Toasts";
 const UserTableRow = ({ id, user, setCuid, cuid, refreshRtc, main_refresh, handle_del, establish_ws_conn, css, close_conn, open_wss_modal, rtc_status = [], refresh_rtc, setRtcView, scuid, rtc_fix_data = [], call_handler, ici }) => {
-  const { addManager, managers, soc_states, setManagers, update_rtc_status } = useContext(UserContext);
+  const { addManager, managers, soc_states, update_rtc_status } = useContext(UserContext);
 
 
   // useEffect(()=>{
