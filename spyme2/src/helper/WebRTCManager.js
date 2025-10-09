@@ -3,7 +3,7 @@ export default class WebRTCManager {
     this._lastRemoteStream = null;
     this.config = config.iceServers
       ? config
-      :null
+      : null
 
     this.peer = null;
     this.dataChannel = null;
@@ -39,10 +39,10 @@ export default class WebRTCManager {
       this.emit("ice-candidate", e.candidate);
     };
 
-  this.peer.ontrack = (e) => {
-  this._lastRemoteStream = e.streams[0];
-  this.emit("track", e.streams[0]);
-};
+    this.peer.ontrack = (e) => {
+      this._lastRemoteStream = e.streams[0];
+      this.emit("track", e.streams[0]);
+    };
 
     this.peer.ondatachannel = (e) => {
       this.dataChannel = e.channel;
@@ -87,15 +87,29 @@ export default class WebRTCManager {
       this.emit("data-message", e.data, isReceiver);
   }
 
-addStream(stream) {
-  if (!this.peer) throw new Error("Peer not created yet.");
-  this.stream = stream; // save it
-  stream.getTracks().forEach((track) => this.peer.addTrack(track, stream));
-}
+  // addStream(stream) {
+  //   if (!this.peer) throw new Error("Peer not created yet.");
+  //   this.stream = stream; // save it
+  //   stream.getTracks().forEach((track) => this.peer.addTrack(track, stream));
+  // }
+  addStream(stream) {
+    if (!this.peer) throw new Error("Peer not created yet.");
 
-  async createOffer(ice_data = [],stream=false) {
+    // Remove old tracks from peer
+    if (this._localStream) {
+      this.peer.getSenders().forEach(sender => {
+        this.peer.removeTrack(sender);
+      });
+      this._localStream.getTracks().forEach(track => track.stop());
+    }
+
+    this._localStream = stream; // save reference
+    stream.getTracks().forEach(track => this.peer.addTrack(track, stream));
+  }
+
+  async createOffer(ice_data = [], stream = false) {
     this.createPeer(true);
-    if(stream){
+    if (stream) {
       this.addStream(stream)
     }
     const offer = await this.peer.createOffer();
@@ -111,24 +125,24 @@ addStream(stream) {
     await this.waitForIceGatheringComplete(); // NEW: wait for all ICE candidates
     return offer;
   }
-/**
- * Create an SDP answer for an incoming remote offer.
- *
- * @param {{ type: string, sdp: string } | string} [remoteOffer] - 
- *        The remote offer, either as a full RTCSessionDescriptionInit object 
- *        ({ type: "offer", sdp: "..." }) or just a raw SDP string.
- * @param {Array<RTCIceCandidateInit>} [ice_data=[]] - 
- *        An array of ICE candidates from the remote peer.
- * @param {MediaStream|boolean} [stream=false] - 
- *        Local media stream to attach, or `false` if none.
- * @returns {Promise<RTCSessionDescriptionInit>} The generated SDP answer.
- */
-  async createAnswer(remoteOffer, ice_data = [],stream=false) {
-    this.createPeer();  
+  /**
+   * Create an SDP answer for an incoming remote offer.
+   *
+   * @param {{ type: string, sdp: string } | string} [remoteOffer] - 
+   *        The remote offer, either as a full RTCSessionDescriptionInit object 
+   *        ({ type: "offer", sdp: "..." }) or just a raw SDP string.
+   * @param {Array<RTCIceCandidateInit>} [ice_data=[]] - 
+   *        An array of ICE candidates from the remote peer.
+   * @param {MediaStream|boolean} [stream=false] - 
+   *        Local media stream to attach, or `false` if none.
+   * @returns {Promise<RTCSessionDescriptionInit>} The generated SDP answer.
+   */
+  async createAnswer(remoteOffer, ice_data = [], stream = false) {
+    this.createPeer();
     await this.peer.setRemoteDescription(
       new RTCSessionDescription(remoteOffer)
     );
-    if(stream){
+    if (stream) {
       this.addStream(stream)
     }
 
@@ -172,7 +186,7 @@ addStream(stream) {
 
   getStatus() {
     if (!this.peer) {
-      
+
       return {
         peerConnectionState: "not-created",
         iceConnectionState: "not-created",
@@ -180,7 +194,7 @@ addStream(stream) {
         videoActive: false,
         audioActive: false,
       };
-      
+
     }
 
     return {
@@ -207,4 +221,39 @@ addStream(stream) {
       this.peer = null;
     }
   }
+  clean() {
+    this.iceCandidates = [];
+
+    if (this.dataChannel) {
+      this.dataChannel.close();
+      this.dataChannel = null;
+    }
+
+    if (this.peer) {
+      this.peer.close();
+      this.peer = null;
+    }
+
+    // Stop and remove local stream if any
+    if (this._localStream) {
+      this._localStream.getTracks().forEach(track => track.stop());
+      this._localStream = null;
+      console.log("🧹 Local media tracks stopped (cleaned)");
+    }
+
+    this.stream = null;
+    this.dcs = false;
+
+    this.emit("cleaned");
+  }
+  /**
+   * Get the current local MediaStream attached to this WebRTCManager.
+   * 
+   * @returns {MediaStream | null} The local media stream, or null if none exists.
+   */
+  getLocalStream() {
+    return this._localStream || null;
+  }
+
+
 }

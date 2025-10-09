@@ -6,10 +6,9 @@ const UserTableHeader = ({
   setSearchTerm,
   rowsPerPage,
   setRowsPerPage,
-  openModal,
   refreshApi,
-  clear_all_data,
-  dam
+  open_mod,
+  on_close_mod
 }) => {
   return (
     <div className="mb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
@@ -41,7 +40,7 @@ const UserTableHeader = ({
         <button
           className="btn btn-sm btn-ghost p-2 tooltip tooltip-bottom"
           data-tip="Refresh Table"
-          onClick={refreshApi}
+          onClick={()=>{refreshApi(); }}
         >
           <ArrowPathIcon className="w-5 h-5 text-indigo-500" />
         </button>
@@ -49,7 +48,7 @@ const UserTableHeader = ({
         <button
           className="btn btn-sm btn-ghost p-2 tooltip tooltip-bottom"
           data-tip="Add New User"
-          onClick={openModal}
+          onClick={()=>{open_mod(true)}}
         >
           <PlusCircleIcon className="w-5 h-5 text-green-500" />
         </button>
@@ -57,7 +56,7 @@ const UserTableHeader = ({
         <button
           className="btn btn-sm btn-ghost p-2 tooltip tooltip-bottom"
           data-tip="Clear All SDP/ICE Data"
-          onClick={() => { clear_all_data({}); dam(); }}
+          onClick={() => {   }}
         >
           <TrashIcon className="w-5 h-5 text-red-500" />
         </button>

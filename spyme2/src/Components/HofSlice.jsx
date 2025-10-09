@@ -1,16 +1,18 @@
 import React from 'react'
 import { FetchUsers } from '../HOC/FetchUsersData'
 import UserTables from './UserTables'
- 
 import { AddData } from '../HOC/AddData'
- import { withRtcSock } from '../HOC/ContextHandler'
+import { RtcSockContext } from '../Context/RtcSockContext'
+
+
 const EnhancedUserTables = AddData(FetchUsers(UserTables));
-const UltraENhanceTable=withRtcSock(React.memo(EnhancedUserTables))
+const Aet=RtcSockContext(EnhancedUserTables)
+// const UltraENhanceTable=React.memo(EnhancedUserTables)
 function HofSlice() {
   return (
     <>
        
-        <UltraENhanceTable/>
+        <Aet/>
       
     </>
   )

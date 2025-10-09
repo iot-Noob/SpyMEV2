@@ -1,8 +1,7 @@
 import React from 'react'
 import { FetchUsers } from '../HOC/FetchUsersData'
-import { withRtcSock } from '../HOC/ContextHandler'
 import ClientMain from './ClientMain'
-let EhnanceComp=FetchUsers(withRtcSock(ClientMain))
+let EhnanceComp=FetchUsers(ClientMain)
 const HofClientSlice = () => {
   return (
      <>

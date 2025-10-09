@@ -9,9 +9,9 @@ export default defineConfig({
     port: 1920,        // numeric port
     strictPort: true,  // fail if port is taken
     // Allow access from specific domain or all origins
-    origin: 'https://rtc.nuketerm.mlt',
+       allowedHosts: ['rtcdev.nuketerm.mlt', 'rtc.nuketerm.mlt'], 
     cors: {
-      origin: [/\.nuketerm\.mlt$/], // allow subdomains like foo.nuketerm.mlt
+         origin: [/\.nuketerm\.mlt$/], // allow all subdomains of nuketerm.mlt
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       credentials: true,
     },

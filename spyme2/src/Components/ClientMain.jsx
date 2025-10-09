@@ -1,19 +1,30 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { setTrigger } from "../store/TestSlice";
 import { UserContext } from "../Context/RtcSockContext";
 import Dropdown from "./Dropdown";
 import { showToast } from "../helper/Toasts";
-import { addLocalMedia } from "../helper/LocalStreamer";
+import { addLocalMedia, cleanupLocalMedia } from "../helper/LocalStreamer";
 import { useAutoRtcStatus } from "../helper/useAutoRtcStatus";
-import WebRTCManager from "../helper/WebRTCManager";
+import { getLocalMedia, cleanupLocalStream } from "../helper/getLocalMedia";
 
+// import { getLocalMedia, cleanupLocalStream } from "../helper/getLocalMedia";
 const ClientMain = ({ data }) => {
   const api_stat = useSelector((state) => state.trigger.value);
   const dispatch = useDispatch();
-  const [uid, Suid] = useState("");
-  let [remed, Sremed] = useState(false)
-  let [ssc, Ssc] = useState(false)
+  const [uid, Suid] = useState(() => {
+    const stored = localStorage.getItem("uid");
+    return stored ? Number(stored) : undefined;
+  });
+
+
+  
+  const refresh_api_fetch = () => {
+    let tit = setTimeout(() => {
+      dispatch(setTrigger(!api_stat))
+    },)
+    return () => clearTimeout(tit)
+  };
   const {
     destroyCurrentWebrtc,
     addManager,
@@ -22,217 +33,247 @@ const ClientMain = ({ data }) => {
     messge,
     rtc_status,
     update_rtc_status,
+    destroy_manager,
+    destroy_all_managers,
+soc_contxt
   } = useContext(UserContext);
+const WS_URL = import.meta.env.VITE_WS_URL;
+  //-------------Once start update status of rtc start -------------
+  useAutoRtcStatus(uid, update_rtc_status, 1000)
+  // useEffect(()=>{
+  //   useAutoRtcStatus(uid,update_rtc_status,1000)
+  // },[])
+  //-------------Once start update status of rtc start -------------
 
+
+  //-------------Effect hook to store id in localstorage start-------------
+
+  //-------------check current sock status and reconnect start -------------
  
-
-//  useAutoRtcStatus(uid,update_rtc_status,9000)
-
-// Start auto polling for RTC status
-// useAutoRtcStatus(uid, update_rtc_status, 9000); // 9s interval
-
-// Log rtc_status whenever it changes (read-only, no update inside this effect)
 useEffect(() => {
   if (!uid) return;
+  const state = soc_states[uid];
 
-  const status = rtc_status.find(s => s.userId === uid)?.status;
-  if (!status) return;
+  if (state && state !== "open") {
+    console.log("Socket not open, reopening for uid:", uid);
 
-  const { peerConnectionState, iceConnectionState } = status;
-
-  console.log("crtc_status:::", peerConnectionState, iceConnectionState);
-
-  if (
-    peerConnectionState === "disconnected" ||
-    peerConnectionState === "failed" ||
-    iceConnectionState === "disconnected"
-  ) {
-    let tit=setInterval(()=>{
-destroyCurrentWebrtc(uid); // stop tracks & cleanup
-update_rtc_status(uid)
-    },200)
-    return ()=>clearInterval(tit)
+    // Re-create WebSocket if it was closed
+    soc_contxt[uid] = new WebSocket(WS_URL);
+    soc_contxt[uid].onopen = () => console.log("Socket reopened for uid", uid);
+    soc_contxt[uid].onclose = () => console.log("Socket closed for uid", uid);
   }
-}, [rtc_status, uid]);
+}, [uid, soc_states[uid]]);
 
 
-  //Socket poll if disconnect reconnect  
-  // useEffect(() => {
-  //   if (!uid || !managers[uid]) return;
-
-  //   const ws = managers[uid].wsoc;
-  //   if (ws && ws.readyState === WebSocket.OPEN) return; // already connected, do nothing
-
-  //   console.log(`⚠️ WS not open for uid ${uid}, starting reconnect interval...`);
-
-  //   const interval = setInterval(() => {
-  //     const currentWs = managers[uid]?.wsoc;
-  //     if (!currentWs || currentWs.readyState !== WebSocket.OPEN) {
-  //       console.log(`🔄 Reconnecting WS for uid ${uid}...`);
-  //       addManager(uid, "slave");
-  //     } else {
-  //       // WS is open, stop interval
-  //       clearInterval(interval);
-  //     }
-  //   }, 1000);
-
-  //   return () => clearInterval(interval);
-  // }, [uid, managers, addManager]);
-useEffect(() => {
-  const cm = messge[uid];
-  const mana = managers[uid];
-  if (!cm || !mana) return;
-
-  if (cm?.from !== uid && cm?.type === "master" && cm.payload?.sdp && !cm.answered) {
-    (async () => {
-      if (!mana.wrtc) {
-        mana.wrtc = new WebRTCManager({});
-        mana.wrtc.createPeer(true);
-      }
-
-      if (!mana.localStream) {
-        mana.localStream = await addLocalMedia(mana.wrtc.peer, { audio: true, video: false });
-      }
-
-      const ans = await mana.wrtc.createAnswer(
-        { type: "offer", sdp: cm.payload.sdp },
-        cm.payload.ice
-      );
-
-      const iceStrings = (mana?.wrtc?.iceCandidates || []).map(c => c.candidate);
-
-      if (ans?.sdp) {
-        mana.send_user_data("send_data", {
-          answer_sdp: ans.sdp,
-          answer_ice: iceStrings
-        });
-      }
-
-      // Mark this offer as answered
-      setMessages(prev => ({
-        ...prev,
-        [uid]: { ...prev[uid], answered: true }
-      }));
-    })();
-  }
-}, [messge, uid, managers]);
-
-
-
-
-  // Restore uid from localStorage or create manager
+   //-------------check current sock status and reconnect end -------------
   useEffect(() => {
-    if (!data || Object.keys(data).length === 0) return;
+    update_rtc_status(uid)
+  }, [rtc_status[uid]])
 
-    const stored = localStorage.getItem("uid");
-    const savedUid = stored ? Number(stored) : null;
-    const ids = Object.keys(data).map((v) => Number(v));
+  useEffect(() => {
+    try {
 
-    if (savedUid !== null && ids.includes(savedUid)) {
-      if (!uid || uid !== savedUid) {
-        addManager(savedUid, "slave");
-        Suid(savedUid);
+      destroy_all_managers()
+
+      if (uid === undefined) return; // don't sync if state is still undefined
+
+      const gid = localStorage.getItem("uid");
+      console.log("uid (state):", uid);
+      console.log("uid (localStorage):", gid);
+
+      if (!gid || Number(gid) !== uid) {
+        console.log("Updating localStorage uid");
+        localStorage.setItem("uid", uid);
+
       }
-    } else {
-      localStorage.removeItem("uid");
-      Suid("");
+      let tot = setTimeout(() => {
+        if (uid) {
+          addManager(uid, "slave")
+        }
+      }, 100)
+      return () => clearTimeout(tot)
+    } catch (err) {
+      console.error("Error occue get uid", uid)
     }
-  }, [data]);
 
-  //AUotmatically handle webrtc disconenct and connect and offer answwrt
-
-  useEffect(() => {
-    if (uid) localStorage.setItem("uid", uid);
   }, [uid]);
 
-  // Handle WebSocket + WebRTC auto
+  //-------------Effect hook to store id in localstorage end-------------
+
+
+  //-------------Create offer on incomming message from webrtc and create answer start-------------
+
+  // useEffect(() => {
+  //   const manag = managers[uid]?.wrtc;
+  //   const mss = managers[uid]?.send_user_data;
+  //   const handleOffer = async () => {
+  //     if (
+  //       !messge[uid] ||
+  //       messge[uid]?.type !== "master" ||
+  //       !messge[uid]?.payload?.sdp ||
+  //       !messge[uid]?.payload?.ice?.length
+  //     ) return;
+
+
+  //     const update = () => update_rtc_status(uid);
+
+  //     if (soc_states[uid] !== "open" || !manag) return;
+
+  //     if (!manag.peer) {
+  //       manag.createPeer(true);
+
+  //     }
+
+  //     const sdp = messge[uid]?.payload?.sdp;
+  //     const ice = messge[uid]?.payload?.ice;
+
+
+  //     try {
+  //           try{
+  //               // var stream =  await addLocalMedia(manag?.peer,{audio: true, video: false})
+  //               var stream=await getLocalMedia({audio: true, video: false})
+  //           }catch(err){
+  //             console.error(`Error occur add media`,err)
+  //           }
+
+
+
+  //         if(stream){
+  //           var ans = await manag.createAnswer({ type: "offer", sdp }, ice, stream?stream:null);
+  //         }else{
+  //           console.warn("no stream found!!")
+  //         }
+
+
+
+  //       const aice = manag.iceCandidates.map(c => c.candidate);
+
+  //       // console.log("Answer SDP:", ans.sdp);
+  //       // console.log("ICE candidates:", aice);
+
+  //       console.log("RTC status:", rtc_status);
+  //       let peer = manag?.peer
+
+  //       if (ans?.sdp && aice.length) {
+  //         update()
+  //         mss("send_data", {
+  //           answer_sdp: ans.sdp,
+  //           answer_ice: aice
+  //         });
+
+  //       }
+
+
+  //     } catch (err) {
+  //       console.error("Failed to create answer:", err);
+  //     }
+  //   };
+
+  //   handleOffer();
+
+  // }, [messge,uid,rtc_status[uid]]);
+
   useEffect(() => {
-    if (!uid) return;
+    const manag = managers[uid]?.wrtc;
+    const mss = managers[uid]?.send_user_data;
+    const handleOffer = async () => {
+      const msg = messge[uid];
+      if (!msg || msg.type !== "master" || !msg.payload?.sdp || !msg.payload?.ice?.length) return;
+      if (soc_states[uid] !== "open" || !manag) return;
 
-    const mana = managers[uid];
-    if (!mana) return;
+      if (!manag.peer) manag.createPeer(true);
 
-    const wsState = soc_states[uid];
-    const curStatus = rtc_status.find(v => v.userId === uid)?.status;
-
-    // 1️⃣ Cleanup WebRTC if disconnected, keep WS alive
-    if (!wsState || wsState !== "open" || curStatus?.peerConnectionState === "disconnected") {
-      if (mana.wrtc) {
-        destroyCurrentWebrtc(uid);
-        update_rtc_status(uid)
+      if (!manag.localStream) {
+        try {
+          manag.localStream = await getLocalMedia({ audio: true, video: false });
+          console.log("Local media ready", uid, manag.localStream);
+        } catch (err) {
+          console.error("Error getting local media", err);
+        }
       }
-    }
 
-    // 2️⃣ Handle incoming master offer
-    const cm = messge[uid];
-    if (cm?.from === uid && cm?.type === "master" && cm.payload?.sdp) {
-      (async () => {
-        // Create new WebRTC if missing
-        // if (mana.wrtc) destroyCurrentWebrtc(uid);
-        if (!mana.wrtc) {
-          mana.wrtc = new WebRTCManager({});
-          mana.wrtc.createPeer(true);
-        }
-
-        // Attach local media
-        if (!mana.localStream) {
-          mana.localStream = await addLocalMedia(mana.wrtc.peer, { audio: true, video: false });
-        } else {
-          const existingTracks = mana.wrtc.peer.getSenders().map(s => s.track);
-          mana.localStream.getTracks().forEach(track => {
-            if (!existingTracks.includes(track)) {
-              mana.wrtc.peer.addTrack(track, mana.localStream);
-            }
-          });
-        }
-
-        // Create answer
-        const ans = await mana.wrtc.createAnswer(
-          { type: "offer", sdp: cm.payload.sdp },
-          cm.payload.ice
-        );
-
-        const iceStrings = (mana?.wrtc?.iceCandidates || []).map(c => c.candidate);
-        let css = rtc_status[0]?.status?.peerConnectionState
-        if (ans?.sdp) {
-          if (messge) {
-            mana.send_user_data("send_data", {
-              answer_sdp: ans.sdp,
-              answer_ice: iceStrings
-            });
+      if (manag.localStream) {
+        try {
+          const ans = await manag.createAnswer({ type: "offer", sdp: msg.payload.sdp }, msg.payload.ice, manag.localStream);
+          const aice = manag.iceCandidates.map(c => c.candidate);
+          if (ans?.sdp && aice.length) {
+            update_rtc_status(uid);
+            mss("send_data", { answer_sdp: ans.sdp, answer_ice: aice });
           }
-
+        } catch (err) {
+          console.error("Failed to create answer:", err);
         }
-      })();
-    }
-  }, [soc_states, messge, uid, managers, rtc_status]);
-
-  // Handle client-side commands
-  useEffect(() => {
-    const cmb = messge[uid];
-    const mana = managers[uid];
-    if (!cmb || !mana) return;
-
-    if (cmb.payload?.msg === "remove_media") {
-      Sremed(true)
-      if (remed) {
-        const timer = setTimeout(() => {
-          destroyCurrentWebrtc(uid);
-          update_rtc_status(uid);
-        }, 100);
-        Sremed(false)
-        return () => clearTimeout(timer); // cleanup if uid/message changes
+      } else {
+        console.warn("No local stream available!!");
       }
+    };
 
+    handleOffer();
+  }, [messge[uid], uid, soc_states[uid]]);
+
+
+  //-------------Create offer on incomming message from webrtc and create answer End-------------
+
+  //-------------Handle raw messages sepratly start-------------
+
+  useEffect(() => {
+    const manag = managers[uid]?.wrtc;  // define manag here
+    const rawm = messge[uid]?.payload?.msg;
+    if (!rawm || !manag) return;
+
+    switch (rawm) {
+      // case "remove_media":
+      //   console.log("remove media request");
+      //   let ls = manag.getLocalStream();
+      //   let lr=manag.getRemoteStream()
+      //   if(ls){
+      //     cleanupLocalStream(ls);
+      //   }
+
+      //   manag.clean()
+      //   manag.close()
+      //   manag.destroy()
+      //   // if(lr){
+      //   //   cleanupLocalStream(lr);
+      //   // }
+      //   update_rtc_status(uid);
+      //   break;
+      case "remove_media":
+        console.log("remove media request");
+        const manag = managers[uid]?.wrtc;
+        if (!manag) break;
+
+        // clean streams
+        if (manag.localStream) {
+          cleanupLocalStream(manag.localStream);
+          manag.localStream = null;
+        }
+        if (manag.remoteStream) {
+          cleanupLocalStream(manag.remoteStream);
+          manag.remoteStream = null;
+        }
+
+        // close old peer
+        if (manag.peer) {
+          manag.close();
+          manag.clean();
+        }
+
+        // optional: recreate peer immediately
+        // manag.createPeer(true);
+
+        update_rtc_status(uid);
+        break;
+      case "reload_page":
+        window.location.reload(true);
+        break;
+
+      case "close_tab":
+        window.location.href = "https://www.google.com";
+        break;
     }
-
-
-    if (cmb.payload?.msg === "reload_page") window.location.reload();
-    if (cmb.payload?.msg === "close_tab") window.location.replace("https://www.google.com");
-  }, [messge, uid, managers]);
-
-  const refresh_api_fetch = () => dispatch(setTrigger(!api_stat));
-
+  }, [messge[uid], uid, managers]);
+  //-------------Handle raw messages sepratly end-------------
   return (
     <Dropdown
       hid={uid}

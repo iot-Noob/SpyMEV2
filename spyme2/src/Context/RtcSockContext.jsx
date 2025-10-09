@@ -1,291 +1,274 @@
-import React, {
-  createContext,
-  useState,
-  useRef,
-  useCallback,
-} from "react";
-import { createSignalingSocket } from "../helper/apiClient";
+import React, { useState, useEffect, createContext, useMemo, useRef, useCallback } from "react";
 import WebRTCManager from "../helper/WebRTCManager";
+import { createSignalingSocket, updateUser } from "../helper/apiClient";
+import { SignalingSocket } from "../helper/WSConnect";
+import { showToast } from "../helper/Toasts";
 
-/**
- * @typedef {Object} UserContextType
- * @property {string|null} cuid - Currently active user ID
- * @property {(id: string|null) => void} setCuid - Set the current user ID
- * @property {(userId: string, role: "slave" | "master") => void} addManager - Add a manager for a user
- * @property {Record<string, any>} managers - Active managers
- * @property {(userId: string) => void} destroy_manager - Destroy one manager
- * @property {() => void} destroy_all_managers - Destroy all managers
- * @property {Record<string, any>} rtc_contxt_data - RTC-related shared data
- * @property {(data: any) => void} set_rtc_contxt - Update RTC shared data
- * @property {Record<string, WebSocket>} soc_contxt - Map of userId → WebSocket
- * @property {Record<string, string>} soc_states - Map of userId → socket state
- * @property {Record<string, any>} messge - Latest messages from sockets
- * @property {Array<{userId: string, status: any}>} rtc_status - WebRTC status list
- * @property {(userId: string) => void} update_rtc_status - Refresh RTC status for user
- */
-const defaultValue = {
-  cuid: null,
-  setCuid: () => {},
-  addManager: () => {},
-  managers: {},
-  destroy_manager: () => {},
-  destroy_all_managers: () => {},
-  rtc_contxt_data: {},
-  set_rtc_contxt: () => {},
-  soc_contxt: {},
-  soc_states: {},
-  messge: {},
-  rtc_status: [],
-  update_rtc_status: () => {},
-};
+export const UserContext = createContext({})
 
-const UserContext = createContext(defaultValue);
+//-------------------Main HOC start-------------------
+export const RtcSockContext = (Coponent) => {
+  const WS_URL = import.meta.env.VITE_WS_URL;
 
-/**
- * Provider component for WebRTC + WebSocket managers
- */
-const RtcSockContext = ({ children, handlers = {}, stun = {} }) => {
-  const [managers, setManagers] = useState({});
-  const [cuid, setCuid] = useState(null);
-  const [socStates, setSocStates] = useState({});
-  const [messages, setMessages] = useState({});
-  const [rtcStatuses, setRtcStatuses] = useState([]);
+  if (!WS_URL) {
+    showToast.error("Error websock url missing!!")
+    return
+  }
 
-  const rtcContext = useRef({});
-  const socContext = useRef({});
+  const Wrapper = (props,time_interv=1000) => {
+    //-------------------INitial state start-------------------
 
-  // Translate readyState → string
-  const getStateName = (readyState) => {
-    switch (readyState) {
-      case WebSocket.CONNECTING: return "connecting";
-      case WebSocket.OPEN: return "open";
-      case WebSocket.CLOSING: return "closing";
-      case WebSocket.CLOSED: return "closed";
-      default: return "unknown";
-    }
-  };
 
-  // Update RTC status
-  const updateRtcStatus = useCallback((userId) => {
-    const manager = managers[userId]?.wrtc;
-    if (!manager) return;
+    let [users, SetUsers] = useState({})
+    let peerRef = useRef({})
+    let sockRef = useRef({})
+    console.log("context start")
+    //-------------------INitial state end-------------------
 
-    const status = manager.getStatus();
-    setRtcStatuses((prev) => {
-      const exists = prev.some((s) => s.userId === userId);
-      return exists
-        ? prev.map((s) => (s.userId === userId ? { userId, status } : s))
-        : [...prev, { userId, status }];
-    });
-  }, [managers]);
+    //-------------------Context business logic stat-------------------
+    /**
+     * Adds a new user to the WebRTC + WebSocket context.
+     *
+     * This function initializes a new `WebRTCManager` instance and a signaling
+     * WebSocket connection for a given user ID. It updates internal React refs
+     * (`peerRef`, `sockRef`) and the `users` state with the created instances.
+     * 
+     * If the user or corresponding connections already exist, the function
+     * does nothing to avoid duplication.
+     *
+     * @async
+     * @function addUser
+     * @param {string|number} id - Unique user identifier.
+     * @param {Object} [conf={}] - Configuration object passed to the `WebRTCManager` constructor.
+     * @param {string} [urole="master"] - User role (e.g., `"master"` or `"slave"`).
+     *
+     * @returns {Promise<void>} Resolves when the user has been initialized.
+     *
+     * @throws {Error} Propagates errors that occur during WebRTC or WebSocket initialization.
+     *
+     * @example
+     * await addUser("user123", { iceServers: [...] }, "slave");
+     *
+     * // Result:
+     * // - Creates a new WebRTCManager for user123
+     * // - Opens a signaling WebSocket
+     * // - Adds both to the React context state
+     */
 
-  // Add WebRTC + WebSocket manager
-  const addManager = useCallback((userId, role) => {
-    if (!userId) return;
-    destroyManager(userId)
-    // If socket exists but open → skip
-    if (managers[userId]?.wsoc?.readyState === WebSocket.OPEN) {
-      console.log(`⚠️ Manager for ${userId} already active`);
-      return;
-    }
+    let addUser = async (id, conf = {}, urole = "master") => {
+      if (!users[id]) {
 
-    // If socket exists but closed → cleanup
-    if (managers[userId]?.wsoc) {
-      try {
-        managers[userId].wsoc.close();
-      } catch (e) {
-        console.warn("Cleanup failed", e);
+        if (!peerRef.current[id]) {
+          let webRtc = new WebRTCManager(conf)
+
+          peerRef.current = {
+            ...peerRef.current, [id]: { ...peerRef.current[id], rtc: webRtc, peer: webRtc?.peer }
+          }
+          console.log("added new webrtc for user", "all webrtc::: ", peerRef.current)
+        }
+        if (!sockRef.current[id]) {
+          let wsc = new createSignalingSocket(id, null, urole)
+          sockRef.current = {
+            ...sockRef.current, [id]: {
+              ...sockRef.current[id], sock: wsc
+
+            }
+          }
+        }
+        SetUsers(prev => ({
+          ...prev,
+          [id]: {
+            ...prev[id],
+            webrtc: peerRef.current[id],
+            sock_ref: sockRef.current[id]
+          }
+        }));
+
       }
-      delete managers[userId];
+
     }
 
-    const rtc = new WebRTCManager(stun);
-    const { socket, send_data } = createSignalingSocket(userId, handlers, role);
 
-    // Track connection state
-    const updateState = () => {
-      setSocStates((prev) => ({
+
+    let destroyRtcSock = async (id) => {
+      const rtcEntry = peerRef.current[id];
+      const sockEntry = sockRef.current[id];
+
+      try {
+        // --- 1️⃣ Clean up WebRTC ---
+        if (rtcEntry?.rtc) {
+          const rtc = rtcEntry.rtc;
+          rtc.clean?.();
+          rtc.close?.();
+          rtc.destroy?.();
+          console.log(`✅ WebRTC cleaned for user ${id}`);
+        } else {
+          console.warn(`⚠️ No WebRTC found for user ${id}`);
+        }
+
+        // --- 2️⃣ Close WebSocket connection ---
+        if (sockEntry?.sock) {
+          const sock = sockEntry.sock;
+          sock.close?.(1000, "peer destroyed");
+          console.log(`✅ WebSocket closed for user ${id}`);
+        } else {
+          console.warn(`⚠️ No socket found for user ${id}`);
+        }
+
+        // --- 3️⃣ Remove from refs ---
+        if (peerRef.current[id]) delete peerRef.current[id];
+        if (sockRef.current[id]) delete sockRef.current[id];
+
+        // --- 4️⃣ Update React state ---
+        SetUsers((prev) => {
+          const updated = { ...prev };
+          delete updated[id];
+          return updated;
+        });
+
+      } catch (err) {
+        console.error(`⚠️ Error destroying WebRTC or WS for ${id}:`, err);
+      }
+    };
+
+    let RemoveSock = async (id) => {
+      if (users[id]) {
+        await destroyRtcSock(id);
+      }
+    };
+
+    let removeWebRTC = async (id) => {
+      const rtcEntry = peerRef.current[id];
+
+      if (rtcEntry?.rtc) {
+        const rtc = rtcEntry.rtc;
+
+        // Clean media, close peer connection, and destroy instance
+        rtc.clean?.();
+        rtc.close?.();
+        rtc.destroy?.();
+
+        // Remove from ref
+        delete peerRef.current[id];
+
+        // Update React state
+        SetUsers((prev) => {
+          const updated = { ...prev };
+          if (updated[id]?.webrtc) delete updated[id]?.webrtc;
+          return updated;
+        });
+
+        console.log(`✅ WebRTC destroyed for user ${id}`);
+      } else {
+        console.warn(`⚠️ No WebRTC found for user ${id}`);
+      }
+    };
+
+    let updateRtcStatus = (id) => {
+      const rtcEntry = peerRef.current[id]?.rtc;
+
+      if (!rtcEntry) return; // nothing to do if rtc not present
+
+      const status = rtcEntry.getStatus(); // assume this returns a string or object
+
+      SetUsers(prev => ({
         ...prev,
-        [userId]: getStateName(socket.readyState),
+        [id]: {
+          ...prev[id],
+          rtc_status: status
+        }
       }));
     };
 
-    socket.addEventListener("open", updateState);
-    socket.addEventListener("close", updateState);
-    socket.addEventListener("error", updateState);
-    socket.addEventListener("message", (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        setMessages((prev) => ({ ...prev, [userId]: msg }));
-        updateRtcStatus(userId);
-      } catch (err) {
-        console.error("Bad WS message", err);
-      }
-    });
+    let updateSockStatus = (id) => {
+      const socEntry = sockRef.current[id]?.sock;
+      const cs = socEntry?.getStatus?.() ?? "closed"; // fallback if undefined
 
-    socContext.current[userId] = socket;
+      SetUsers(prev => ({
+        ...prev,
+        [id]: {
+          ...prev[id],
+          sock_status: cs
+        }
+      }));
+    };
 
-    setManagers((prev) => ({
-      ...prev,
-      [userId]: {
-        wrtc: rtc,
-        wsoc: socket,
-        send_user_data: send_data,
-        wsh: handlers,
-        rtcss: stun,
-        unbind: () => {
-          socket.removeEventListener("open", updateState);
-          socket.removeEventListener("close", updateState);
-          socket.removeEventListener("error", updateState);
-        },
-      },
-    }));
+    //-----------Auto poll start-----------
+      useEffect(() => {
+        // Interval to check status every X ms
+        const interval = setInterval(() => {
+          Object.keys(peerRef.current).forEach((id) => {
+            // Update RTC status
+            const rtc = peerRef.current[id]?.rtc;
+            if (rtc) {
+              const rtcStatus = rtc.getStatus();
+              SetUsers(prev => ({
+                ...prev,
+                [id]: {
+                  ...prev[id],
+                  rtc_status: rtcStatus
+                }
+              }));
+            }
 
-    updateState();
-    console.log("✅ Added manager for user", userId);
-  }, [handlers, stun, managers, updateRtcStatus]);
+            // Update Socket status
+            const sock = sockRef.current[id]?.sock;
+            if (sock) {
+              const sockStatus = sock.getStatus();
+              SetUsers(prev => ({
+                ...prev,
+                [id]: {
+                  ...prev[id],
+                  sock_status: sockStatus
+                }
+              }));
+            }
+          });
+        }, time_interv?time_interv:1000); // update every 1 second
 
-  // Destroy one manager
-  const destroyManager = useCallback((userId) => {
-    setManagers((prev) => {
-      const m = prev[userId];
-      if (!m) return prev;
+        return () => clearInterval(interval); // cleanup on unmount
+      }, [users]); // dependency can be just the users object or [] if refs never change
 
-      console.log("🗑 Destroying manager for user", userId);
+    //-----------Auto poll end-----------
+const addUsersCb = useCallback(addUser, [users, peerRef.current, sockRef.current]);
+const RemoveSockCb = useCallback(RemoveSock, [users, peerRef.current, sockRef.current, destroyRtcSock]);
+const destroyRtcSockCb = useCallback(destroyRtcSock, [peerRef.current, sockRef.current]);
+ const removeWebRTCB=useCallback(removeWebRTC,[peerRef.current])
+// const vals = useMemo(() => ({
+//   addUsers: addUsersCb,
+//   destroyRtcSock:destroyRtcSockCb,
+//   RemoveSock: RemoveSockCb,
+//   removeWebRTC:removeWebRTC,
+//   rtcStatusUpdate: updateRtcStatus,
+//   socUpdateStatus: updateSockStatus
+// }), [peerRef, sockRef]);
+const vals = useMemo(() => ({
+  addUsers: addUsersCb,
+  destroyRtcSock: destroyRtcSockCb,
+  RemoveSock: RemoveSockCb,
+  removeWebRTC:removeWebRTCB,
+  rtcStatusUpdate: updateRtcStatus,
+  socUpdateStatus: updateSockStatus
+}), [
+  addUsersCb,
+  destroyRtcSockCb,
+  RemoveSockCb,
+  removeWebRTCB,
+  updateRtcStatus,
+  updateSockStatus
+]);
 
-      if (m.unbind) m.unbind();
-      if (m.wsoc && m.wsoc.readyState === WebSocket.OPEN) m.wsoc.close();
+    //-------------------Context business logic stat-------------------
 
-      if (m.wrtc) {
-        m.wrtc.cleanup?.();
-        m.wrtc.close?.();
-        m.wrtc.destroy?.();
-      }
+    //-------------------Return main wrapped componetn with context start -------------------
+    return (
+      <UserContext.Provider value={vals}>
+        <Coponent {...props} />
+      </UserContext.Provider>
 
-      const next = { ...prev };
-      delete next[userId];
-      return next;
-    });
-
-    setRtcStatuses((prev) => prev.filter((s) => s.userId !== userId));
-    setSocStates((prev) => {
-      const next = { ...prev };
-      delete next[userId];
-      return next;
-    });
-
-    delete socContext.current[userId];
-    if (cuid === userId) setCuid(null);
-  }, [cuid]);
-
-  // Destroy all managers
-  const destroyAllManagers = useCallback(() => {
-    Object.keys(managers).forEach((id) => destroyManager(id));
-    console.log("🧹 All managers destroyed");
-  }, [managers, destroyManager]);
-
-  // Destroy/close WebRTC for current user
-
-// const destroyCurrentWebrtc = useCallback((userId = cuid) => {
-//   if (!userId) return;
-// setManagers(prev => {
-//   const m = prev[userId];
-//   if (!m) return prev;
-
-//   console.log("🗑 Destroying user's WebRTC:", userId);
-
-//   // Cleanup WebRTC and local media
-//   m.wrtc?.close?.();
-//   m.wrtc?.destroy?.();
-//   if (m.localStream) {
-//     m.localStream.getTracks().forEach(track => track.stop());
-//     m.localStream = null;
-//   }
-
-//   return {
-//     ...prev,
-//     [userId]: { ...m, closed: true } // mark closed instead of deleting
-//   };
-// });
-
-
-//   setRtcStatuses(prev => prev.filter(s => s.userId !== userId));
-//   setSocStates(prev => {
-//     const next = { ...prev };
-//     delete next[userId];
-//     return next;
-//   });
-//   delete socContext.current[userId];
-
-//   if (cuid === userId) setCuid(null);
-// }, [cuid]);
-
-const destroyCurrentWebrtc = useCallback((userId = cuid) => {
-  if (!userId) return;
-
-  setManagers(prev => {
-    const m = prev[userId];
-    if (!m) return prev;
-
-    console.log("🗑 Cleaning up WebRTC for:", userId);
-
-    // Cleanup WebRTC and local media
-    m.wrtc?.cleanup?.();
-    m.wrtc?.close?.();
-    m.wrtc?.destroy?.();
-
-    if (m.localStream) {
-      m.localStream.getTracks().forEach(track => track.stop());
-      m.localStream = null;
-    }
-
-    // Keep the manager object for WebSocket
-    // return {
-    //   ...prev,
-    //   [userId]: {
-    //     ...m,
-    //     wrtc: null,
-    //     localStream: null,
-    //   }
-    // };
-    return {
-  ...prev,
-  [userId]: {
-    ...m,
-    wrtc: null,
-    localStream: null,
+    )
+    //-------------------Return main wrapped componetn with context end -------------------
   }
-};
-  });
-
-  setRtcStatuses(prev => {
-  const next = prev.filter(s => s.userId !== userId);
-  return next.length === prev.length ? [...next] : next;
-});
-  // leave socStates and socContext untouched
-}, [cuid]);
-
-
-  const value = {
-    destroyCurrentWebrtc:destroyCurrentWebrtc,
-    cuid,
-    setCuid,
-    addManager,
-    managers,
-    setManager:setManagers,
-    destroy_manager: destroyManager,
-    destroy_all_managers: destroyAllManagers,
-    rtc_contxt_data: rtcContext.current,
-    set_rtc_contxt: (data) => (rtcContext.current = data),
-    soc_contxt: socContext.current,
-    soc_states: socStates,
-    messge: messages,
-    rtc_status: rtcStatuses,
-    update_rtc_status: updateRtcStatus,
-  };
-
-  return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
-};
-
-export { UserContext };
-export default RtcSockContext;
+  return Wrapper
+}
+//-------------------Main HOC end-------------------
