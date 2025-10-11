@@ -4,18 +4,16 @@ import UserTables from './UserTables'
 import { AddData } from '../HOC/AddData'
 import { RtcSockContext } from '../Context/RtcSockContext'
 
-
+// ✅ HOC chaining at module scope (not inside the component)
 const EnhancedUserTables = AddData(FetchUsers(UserTables));
-const Aet=RtcSockContext(EnhancedUserTables)
-// const UltraENhanceTable=React.memo(EnhancedUserTables)
+const Aet = RtcSockContext(EnhancedUserTables);
+
 function HofSlice() {
   return (
     <>
-       
-        <Aet/>
-      
+      <Aet />  {/* just render once */}
     </>
-  )
+  );
 }
 
-export default HofSlice
+export default HofSlice;

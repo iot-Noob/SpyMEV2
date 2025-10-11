@@ -1,15 +1,16 @@
-  // ---------------- Import start---------------
-import React, { useState, useMemo, useEffect } from "react";
+// ---------------- Import start---------------
+import React, { useState, useMemo, useEffect, useContext } from "react";
 import UserTableHeader from "./Table_Slice/UserTableHeader";
 import UserTablePagination from "./Table_Slice/UserTablePagination";
 import UserCardRow from "./UserCardRow";
 import { useDispatch, useSelector } from "react-redux";
 import { setTrigger } from "../store/TestSlice";
-import { getUsers, deleteUser } from "../helper/apiClient"; // assume this fetches all users
+import { deleteUser } from "../helper/apiClient"; // assume this fetches all users
 import { showToast } from "../helper/Toasts";
-import { AddData } from "../HOC/AddData";
-  // ---------------- Import end---------------
-const UserTables = ({ openModal, closeModal, data }) => {
+import { UserContext } from "../Context/RtcSockContext";
+// ---------------- Import end---------------
+const UserTables = ({ openModal, closeModal, data, time_interv=6000}) => {
+  // ----------------State of art hooks start---------------
   const dispatch = useDispatch();
   const apiTrigger = useSelector((state) => state.trigger.value);
   const [currentPage, setCurrentPage] = useState(1);
@@ -17,10 +18,25 @@ const UserTables = ({ openModal, closeModal, data }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
-  const [adm,Sadm]=useState(false)
   const refreshApi = () => dispatch(setTrigger(!apiTrigger));
-
+  // ----------------State of art hooks end---------------  
+  let {
+    connectWs,
+    addUsers,
+    User,
+    peerRef,
+    sockRef,
+    clearAllConnection,
+    removeAllRTCSoc,
+    RemoveSock,
+    removeWebRTC,
+    rtcStatusUpdate,
+    socUpdateStatus,
+    updateRtcSockBoth,
+    removeUSer
+  } = useContext(UserContext)
   const users = Object.entries(data);
+
 
   // ---------------- Sorting & Filtering ----------------
   const filteredUsers = useMemo(() => {
@@ -54,14 +70,28 @@ const UserTables = ({ openModal, closeModal, data }) => {
   };
   // ---------------- Sorting & Filtering end----------------
 
-  // ---------------- Handle componetn business logic start ----------------
 
 
+
   // ---------------- Handle componetn business logic start ----------------
+
+  useEffect(() => {
+    let tot = setTimeout(() => {
+      clearAllConnection();
+    }, 900);
+
+    return () => {
+      clearTimeout(tot); // ✅ correct cleanup
+      clearAllConnection(); // cleanup when component unmounts
+    };
+  }, []);
+
+
   let handle_delete = async (id) => {
     try {
       const res = await deleteUser(id); // pass the actual id
       if (res.status === 200) {
+        removeUSer(id)
         showToast.success("User deleted successfully");
       }
     } catch (err) {
@@ -84,56 +114,100 @@ const UserTables = ({ openModal, closeModal, data }) => {
       refreshApi()
     }
   };
+
+  let add_User = async (id) => {
+      if(User[id]) return;
+
+      addUsers(id)
   
+  }
+
+  let make_offer=async(id)=>{
+    try{
+      add_User(id)
+      console.log("Raw users:::",User[id])
+    }catch(err){
+      showToast.error(`Error create offer due to:\n\n${err}`)
+    }
+  }
+
+  let EnableSock=(id)=>{
+    try{
+        console.log("sock request for id",id)
+        connectWs(id)
+    }catch(err){
+      showToast.error(`Error establish ws connection for ${id}:\n\n${err}`)
+    }
+  }
+
+   // ---------------- Auto ad user stat ----------------
+
+const dataKey = useMemo(() => JSON.stringify(Object.keys(data || {})), [data]);
+useEffect(() => {
+  if (!data) return;
+
+  const timeout = setTimeout(() => {
+    console.log("Auto syncing users with HOC context...");
+    Object.entries(data).forEach(([id, udata]) => {
+      addUsers(id,true,false); // safe, addUsers handles duplicates
+        
+    });
+  }, 600);
+
+  return () => clearTimeout(timeout);
+}, [dataKey, addUsers]);
+
+ // ---------------- Auto ad user end ----------------
 
 
   // ---------------- Handle componetn business logic end ----------------
   return (
-<>
-    <div className="p-4 w-full">
-      <div className="bg-white shadow-lg rounded-xl p-6 w-full">
-        <h2 className="text-2xl font-semibold mb-4 text-gray-800">User Management</h2>
+    <>
+      <div className="p-4 w-full">
+        <div className="bg-white shadow-lg rounded-xl p-6 w-full">
+          <h2 className="text-2xl font-semibold mb-4 text-gray-800">User Management</h2>
 
-        {/* Header */}
-        <UserTableHeader
-          searchTerm={searchTerm}
-          setSearchTerm={setSearchTerm}
-          rowsPerPage={rowsPerPage}
-          setRowsPerPage={setRowsPerPage}
-          refreshApi={refreshApi}
-          open_mod={openModal}
-          on_close_mod={closeModal}
-        />
+          {/* Header */}
+          <UserTableHeader
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            rowsPerPage={rowsPerPage}
+            setRowsPerPage={setRowsPerPage}
+            refreshApi={refreshApi}
+            open_mod={openModal}
+            on_close_mod={closeModal}
+          />
 
-        {/* Table or Card View */}
-        <div className="flex flex-col gap-4">
-          {currentUsers.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">No users found</div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {currentUsers.map(([id, user]) => (
-                <UserCardRow
-                  key={id}
-                  id={id}
-                  user={user}
-                  handle_delete={handle_delete}
-               
-                />
-              ))}
-            </div>
-          )}
+          {/* Table or Card View */}
+          <div className="flex flex-col gap-4">
+            {currentUsers.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">No users found</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {currentUsers.map(([id, user]) => (
+                  <UserCardRow
+                    key={id}
+                    id={id}
+                    user={user}
+                    handle_delete={handle_delete}
+                    offer_maker={make_offer}
+                    enable_sock={EnableSock}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pagination */}
+          <UserTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            setCurrentPage={setCurrentPage}
+          />
         </div>
-
-        {/* Pagination */}
-        <UserTablePagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          setCurrentPage={setCurrentPage}
-        />
       </div>
-    </div>
-         
-</>
+
+    </>
   );
 };
 

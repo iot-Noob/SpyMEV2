@@ -21,10 +21,9 @@ export class SignalingSocket {
     }
 
     /** 🧠 Create and connect WebSocket */
-    connect() {
+    connect(WS_URL) {
         const url = `${WS_URL}?id=${encodeURIComponent(this.userId)}&role=${this.role}`;
         this.socket = new WebSocket(url);
-
         this.socket.onopen = this._handleOpen.bind(this);
         this.socket.onmessage = this._handleMessage.bind(this);
         this.socket.onerror = this._handleError.bind(this);
@@ -39,7 +38,7 @@ export class SignalingSocket {
         this._flushQueue();
         this.handlers.onOpen?.(this.socket);
     }
-
+    
     _handleMessage(event) {
         try {
             const data = JSON.parse(event.data);

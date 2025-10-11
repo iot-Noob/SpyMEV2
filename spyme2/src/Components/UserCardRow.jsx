@@ -1,4 +1,4 @@
-import React from "react";
+import React,{useContext} from "react";
 import { 
   VideoCameraIcon, SpeakerWaveIcon, SignalIcon, ArrowPathIcon, 
   BoltIcon, EyeIcon, PhoneArrowDownLeftIcon, PhoneIcon 
@@ -9,8 +9,8 @@ import { GiBroom } from "react-icons/gi";
 import { FcRefresh } from "react-icons/fc";
 import { RiEyeCloseFill } from "react-icons/ri";
 import { SiWebrtc } from "react-icons/si";
-
-const UserCardRow = ({ id, user,handle_delete}) => {
+import { UserContext } from "../Context/RtcSockContext";
+const UserCardRow = ({ id, user,handle_delete,offer_maker,enable_sock}) => {
   // Placeholder for RTC status
   const userRtcStatus = {
     peerConnectionState: "disconnected",
@@ -18,7 +18,12 @@ const UserCardRow = ({ id, user,handle_delete}) => {
     dataChannelState: "closed",
     videoActive: false,
   };
-
+  let {
+    updateRtcSockBoth,
+    User,
+    peerRef,
+    sockRef
+  }=useContext(UserContext)
   const peerIcon = userRtcStatus.peerConnectionState === "connected"
     ? <ImPhoneHangUp className="w-5 h-5 text-green-500" />
     : <PhoneIcon className="w-5 h-5 text-red-500" />;
@@ -72,31 +77,41 @@ const UserCardRow = ({ id, user,handle_delete}) => {
 
       {/* Action Icons (UI only, no handlers) */}
       <div className="flex flex-wrap gap-2 text-sm">
-        <button className="btn btn-ghost btn-sm p-1" title="Create Offer">
+        <button
+        disabled={User[id]?.sock_status!=="open"}
+         onClick={()=>{offer_maker(id)}}
+          className="btn btn-ghost btn-sm p-1"
+           title="Create Offer">
           <SiWebrtc className="w-5 h-5" />
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="WebSocket">
+        <button 
+         disabled={User[id]?.sock_status!=="open"}
+        className="btn btn-ghost btn-sm p-1" 
+        title="WebSocket">
           <BoltIcon className="w-5 h-5" />
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="WS Connect/Disconnect">
+        <button onClick={()=>{enable_sock(id)}} className="btn btn-ghost btn-sm p-1" title="WS Connect/Disconnect">
           <SignalIcon className="w-5 h-5" />
         </button>
         <button className="btn btn-ghost btn-sm p-1" title="View RTC">
           <EyeIcon className="w-5 h-5" />
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="Call">
+        <button 
+         disabled={User[id]?.sock_status!=="open"}
+        className="btn btn-ghost btn-sm p-1"
+         title="Call">
           {peerIcon}
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="Incoming Call">
+        <button  disabled={User[id]?.sock_status!=="open"} className="btn btn-ghost btn-sm p-1" title="Incoming Call">
           <PhoneArrowDownLeftIcon className="w-5 h-5" />
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="Clean Media">
+        <button  disabled={User[id]?.sock_status!=="open"} className="btn btn-ghost btn-sm p-1" title="Clean Media">
           <GiBroom className="w-5 h-5" />
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="Reload Page">
+        <button  disabled={User[id]?.sock_status!=="open"} className="btn btn-ghost btn-sm p-1" title="Reload Page">
           <FcRefresh className="w-5 h-5" />
         </button>
-        <button className="btn btn-ghost btn-sm p-1" title="Close Tab">
+        <button  disabled={User[id]?.sock_status!=="open"} className="btn btn-ghost btn-sm p-1" title="Close Tab">
           <RiEyeCloseFill className="w-5 h-5" />
         </button>
       </div>
